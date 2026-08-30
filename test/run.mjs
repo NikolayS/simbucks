@@ -81,9 +81,13 @@ check('walk + look', () => {
   key('KeyA'); key('ShiftLeft'); frames(30); key('KeyA', 'keyup'); key('ShiftLeft', 'keyup'); frames(60);
 });
 check('stays in bounds', () => {
-  const a = LAYOUT.kiosk.aisle, m = LAYOUT.player.margin;
+  // Containment is a union of walk boxes now (aisle + back-of-house doorway and
+  // room), so ask the player for its own regions rather than assuming the aisle.
   const p = camera.position;
-  if (p.x < a.x0 - m - 0.05 || p.x > a.x1 + m + 0.05 || p.z < a.z0 - m - 0.05 || p.z > a.z1 + m + 0.05)
+  const regions = player.getRegions?.() ?? [];
+  const inside = regions.some(r => p.x >= r.x0 - 0.05 && p.x <= r.x1 + 0.05
+                                && p.z >= r.z0 - 0.05 && p.z <= r.z1 + 0.05);
+  if (regions.length && !inside)
     throw new Error('out of bounds ' + p.x.toFixed(2) + ',' + p.z.toFixed(2));
   if (Math.abs(p.y - LAYOUT.player.eye) > 0.2) throw new Error('eye height drift ' + p.y.toFixed(3));
 });

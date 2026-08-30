@@ -21,6 +21,7 @@ const CONFIG = {
   collisionRadius: 0.28,
   bodyBottom: 0.10,
   collisionPasses: 2,
+  regionSeam: 0.02,   // overlap between adjoining walk regions, metres
 
   // Camera step motion.
   bobRate: 9.0,
@@ -74,6 +75,39 @@ export function createPlayer(ctx, colliders) {
   const margin = layout.player.margin;
   const eye = layout.player.eye;
   const baseSpeed = layout.player.speed;
+  const regions = buildRegions();
+
+  function pushRegion(list, x0, x1, z0, z1) {
+    if (!Number.isFinite(x0) || !Number.isFinite(x1)
+        || !Number.isFinite(z0) || !Number.isFinite(z1)) return;
+    if (!(x1 > x0) || !(z1 > z0)) return;
+    list.push({ x0, x1, z0, z1 });
+  }
+
+  function buildRegions() {
+    const list = [];
+    // 1. The kiosk aisle, exactly as it has always been.
+    pushRegion(list, aisle.x0 - margin, aisle.x1 + margin,
+                     aisle.z0 - margin, aisle.z1 + margin);
+    // 2 and 3. The back of house, if this layout has one.
+    const bh = layout.kiosk?.backHouse ?? layout.backHouse;
+    const outer = bh?.outer;
+    const door = bh?.doorway;
+    const wall = bh?.wall;
+    if (!outer || !door || !Number.isFinite(wall)) return list;
+    const inX0 = outer.x0 + wall, inX1 = outer.x1 - wall;
+    const inZ0 = outer.z0 + wall, inZ1 = outer.z1 - wall;
+    const aisleBack = aisle.z0 - margin;
+    const seam = CONFIG.regionSeam;
+    // The doorway corridor: the door's x band, from the aisle's back edge
+    // through to the interior's front edge. Overlapped a little at BOTH ends so
+    // there is no seam to catch on; the corridor's x band sits inside both of
+    // its neighbours', so the overlap adds no reachable ground.
+    pushRegion(list, door.x0, door.x1, inZ1 - seam, aisleBack + seam);
+    // The interior of the back room.
+    pushRegion(list, inX0, inX1, inZ0, inZ1);
+    return list;
+  }
 
   const object = new THREE.Group();
   object.name = 'player-root';
@@ -397,26 +431,87 @@ export function createPlayer(ctx, colliders) {
     }
   }
 
-  function clampXToAisle() {
-    const low = aisle.x0 - margin;
-    const high = aisle.x1 + margin;
-    if (posX < low) {
-      posX = low;
+  // Allowed X is the union of the x spans of every region whose z span holds
+  // the current posZ. Being inside any one of them is enough.
+  function clampXToRegion() {
+    let nearestLow = 0;
+    let nearestHigh = 0;
+    let nearestDistance = Infinity;
+    let matched = false;
+    for (let i = 0; i < regions.length; i += 1) {
+      const r = regions[i];
+      if (posZ < r.z0 || posZ > r.z1) continue;
+      matched = true;
+      if (posX >= r.x0 && posX <= r.x1) return;        // inside one: done
+      const distance = posX < r.x0 ? r.x0 - posX : posX - r.x1;
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestLow = r.x0;
+        nearestHigh = r.x1;
+      }
+    }
+    if (!matched) {
+      // No region reaches this z at all, so the player is somewhere walking
+      // could never have taken them — a debug teleport. Recover toward the
+      // nearest region outright instead of abandoning them outside the world.
+      for (let i = 0; i < regions.length; i += 1) {
+        const r = regions[i];
+        const distance = posX < r.x0 ? r.x0 - posX : (posX > r.x1 ? posX - r.x1 : 0);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestLow = r.x0;
+          nearestHigh = r.x1;
+        }
+      }
+    }
+    if (nearestDistance === Infinity) return;          // no regions at all
+    if (posX < nearestLow) {
+      posX = nearestLow;
       if (velocityX < 0) velocityX = 0;
-    } else if (posX > high) {
-      posX = high;
+    } else if (posX > nearestHigh) {
+      posX = nearestHigh;
       if (velocityX > 0) velocityX = 0;
     }
   }
 
-  function clampZToAisle() {
-    const low = aisle.z0 - margin;
-    const high = aisle.z1 + margin;
-    if (posZ < low) {
-      posZ = low;
+  // The same, with the axes swapped.
+  function clampZToRegion() {
+    let nearestLow = 0;
+    let nearestHigh = 0;
+    let nearestDistance = Infinity;
+    let matched = false;
+    for (let i = 0; i < regions.length; i += 1) {
+      const r = regions[i];
+      if (posX < r.x0 || posX > r.x1) continue;
+      matched = true;
+      if (posZ >= r.z0 && posZ <= r.z1) return;
+      const distance = posZ < r.z0 ? r.z0 - posZ : posZ - r.z1;
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestLow = r.z0;
+        nearestHigh = r.z1;
+      }
+    }
+    if (!matched) {
+      // No region reaches this x at all, so the player is somewhere walking
+      // could never have taken them — a debug teleport. Recover toward the
+      // nearest region outright instead of abandoning them outside the world.
+      for (let i = 0; i < regions.length; i += 1) {
+        const r = regions[i];
+        const distance = posZ < r.z0 ? r.z0 - posZ : (posZ > r.z1 ? posZ - r.z1 : 0);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestLow = r.z0;
+          nearestHigh = r.z1;
+        }
+      }
+    }
+    if (nearestDistance === Infinity) return;          // no regions at all
+    if (posZ < nearestLow) {
+      posZ = nearestLow;
       if (velocityZ < 0) velocityZ = 0;
-    } else if (posZ > high) {
-      posZ = high;
+    } else if (posZ > nearestHigh) {
+      posZ = nearestHigh;
       if (velocityZ > 0) velocityZ = 0;
     }
   }
@@ -722,14 +817,14 @@ export function createPlayer(ctx, colliders) {
 
     if (active) {
       posX += velocityX * frameDt;
-      clampXToAisle();
+      clampXToRegion();
       resolveX();
-      clampXToAisle();
+      clampXToRegion();
 
       posZ += velocityZ * frameDt;
-      clampZToAisle();
+      clampZToRegion();
       resolveZ();
-      clampZToAisle();
+      clampZToRegion();
     }
 
     horizontalSpeed = Math.sqrt(velocityX * velocityX + velocityZ * velocityZ);
@@ -860,5 +955,6 @@ export function createPlayer(ctx, colliders) {
     getStick() {
       return { x: stickX, y: stickY };
     },
+    getRegions() { return regions; },
   };
 }

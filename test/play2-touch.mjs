@@ -17,6 +17,17 @@ function check(name, fn) {
   try { fn(); console.log('  ok   ' + name); }
   catch (e) { fails.push(name); console.log('  FAIL ' + name + ': ' + (e.stack || e)); }
 }
+// The player is contained by a UNION of walk boxes (aisle + back-of-house
+// doorway + back room), not by the aisle alone. Ask the module for its own
+// regions so this harness cannot drift from the implementation.
+function inWalkable(player, x, z, tol = 0.05) {
+  const regions = player.getRegions?.() ?? [];
+  for (const r of regions) {
+    if (x >= r.x0 - tol && x <= r.x1 + tol && z >= r.z0 - tol && z <= r.z1 + tol) return true;
+  }
+  return false;
+}
+
 function near(a, b, eps, what) {
   if (!(Math.abs(a - b) <= eps)) throw new Error(`${what}: ${a} vs ${b} (eps ${eps})`);
 }
@@ -138,8 +149,7 @@ console.log('\n=== TOUCH: movement ===');
     const s = w.player.getStick();
     if (s.x !== 0 || s.y !== 0) throw new Error('stick not zeroed: ' + JSON.stringify(s));
   });
-  check('stick stays inside the aisle over 1800 frames', () => {
-    const a = LAYOUT.kiosk.aisle, m = LAYOUT.player.margin;
+  check('stick stays inside the walkable region over 1800 frames', () => {
     for (let i = 0; i < 1800; i++) {
       const t = i / 40;
       w.bus.emit('input:move', { x: Math.sin(t), y: Math.cos(t * 0.7) });
@@ -147,7 +157,7 @@ console.log('\n=== TOUCH: movement ===');
       w.frames(1);
       const p = w.camera.position;
       finite(p.x, p.y, p.z);
-      if (p.x < a.x0 - m - 0.05 || p.x > a.x1 + m + 0.05 || p.z < a.z0 - m - 0.05 || p.z > a.z1 + m + 0.05)
+      if (!inWalkable(w.player, p.x, p.z))
         throw new Error(`out of bounds at frame ${i}: ${p.x.toFixed(2)},${p.z.toFixed(2)}`);
       if (Math.abs(p.y - LAYOUT.player.eye) > 0.2) throw new Error('eye drift ' + p.y);
     }
@@ -293,12 +303,11 @@ console.log('\n=== TOUCH: a whole latte built with fingers only ===');
     if (!cups.some(e => e.p?.cup?.contents?.milk > 0)) throw new Error('no milk in the cup');
   });
   check('walking between stations with the stick, still in bounds', () => {
-    const a = LAYOUT.kiosk.aisle, m = LAYOUT.player.margin;
     w.bus.emit('input:move', { x: -1, y: 0 }); w.frames(120);
     w.bus.emit('input:move', { x: 1, y: 0.4 }); w.frames(120);
     w.bus.emit('input:move', { x: 0, y: 0 }); w.frames(30);
     const p = w.camera.position;
-    if (p.x < a.x0 - m - 0.05 || p.x > a.x1 + m + 0.05 || p.z < a.z0 - m - 0.05 || p.z > a.z1 + m + 0.05)
+    if (!inWalkable(w.player, p.x, p.z))
       throw new Error('out of bounds ' + p.x.toFixed(2) + ',' + p.z.toFixed(2));
   });
 }
@@ -401,9 +410,9 @@ console.log('\n=== TOUCH: fuzz ===');
       const p = w.camera.position, r2 = w.camera.rotation;
       finite(p.x, p.y, p.z, r2.x, r2.y, r2.z);
     }
-    const a = LAYOUT.kiosk.aisle, m = LAYOUT.player.margin, p = w.camera.position;
-    if (p.x < a.x0 - m - 0.05 || p.x > a.x1 + m + 0.05 || p.z < a.z0 - m - 0.05 || p.z > a.z1 + m + 0.05)
-      throw new Error('fuzz escaped the aisle: ' + p.x + ',' + p.z);
+    const p = w.camera.position;
+    if (!inWalkable(w.player, p.x, p.z))
+      throw new Error('fuzz escaped the walkable region: ' + p.x + ',' + p.z);
     if (Math.abs(w.camera.rotation.x) > 1.4836) throw new Error('pitch escaped the clamp: ' + w.camera.rotation.x);
   });
 }
