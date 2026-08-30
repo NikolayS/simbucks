@@ -1019,8 +1019,15 @@
 .sb-touch-controls * {
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
+  -webkit-user-select: none;
   touch-action: none;
   user-select: none;
+}
+
+.sb-hud.sb-touch .sb-prompt-panel {
+  right: clamp(18px, 4vmin, 30px);
+  left: auto;
+  max-width: min(42vw, 58ch);
 }
 
 .sb-touch-stick {

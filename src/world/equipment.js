@@ -13,7 +13,7 @@ const SINK_CUTOUT_DEPTH = 0.34;
 const ICE_WELL_CUTOUT_WIDTH = 0.38;
 const ICE_WELL_CUTOUT_DEPTH = 0.30;
 // mirrored from src/world/kiosk.js
-const UNDER_COUNTER_BAY_X0 = -4.60;
+const UNDER_COUNTER_BAY_X0 = -3.35;
 const UNDER_COUNTER_BAY_X1 = 3.40;
 const UNDER_COUNTER_BAY_Z0 = -2.32;
 const UNDER_COUNTER_BAY_Z1 = -1.88;

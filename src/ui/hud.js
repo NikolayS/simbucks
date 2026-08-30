@@ -1228,9 +1228,17 @@ function buildTouchControls() {
     }
     if (event?.pointerType === 'mouse' && Date.now() - lastTouchAt >= 700) setTouchMode(false);
   };
+  const rememberTouchEnd = event => {
+    if (event?.pointerType === 'touch') lastTouchAt = Date.now();
+  };
+  const rememberFallbackTouchEnd = () => { lastTouchAt = Date.now(); };
   window.addEventListener('pointerdown', detectPointer, { passive: true, capture: true });
   window.addEventListener('pointermove', detectPointer, { passive: true, capture: true });
+  window.addEventListener('pointerup', rememberTouchEnd, { passive: true, capture: true });
+  window.addEventListener('pointercancel', rememberTouchEnd, { passive: true, capture: true });
   document.addEventListener('touchstart', markTouch, { passive: true, capture: true });
+  document.addEventListener('touchend', rememberFallbackTouchEnd, { passive: true, capture: true });
+  document.addEventListener('touchcancel', rememberFallbackTouchEnd, { passive: true, capture: true });
   window.addEventListener('keydown', () => setTouchMode(false), { passive: true, capture: true });
   window.addEventListener('blur', () => resetTouchInputs?.(), { passive: true, capture: true });
 

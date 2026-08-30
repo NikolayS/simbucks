@@ -7,6 +7,7 @@ import * as THREE from 'three';
 
 export function buildKiosk(ctx) {
   const L = ctx.layout;
+  const BH = L.kiosk.backHouse ?? L.backHouse;
   const group = new THREE.Group();
   group.name = 'kiosk';
 
@@ -239,6 +240,66 @@ export function buildKiosk(ctx) {
     return points.filter((point, i) => i === 0 || point.distanceToSquared(points[i - 1]) > 1e-12);
   }
 
+  // The doorway is a gap on one straight, constant-z edge of a closed plan loop. Re-open the
+  // loop at that gap so the ring can be extruded as a single band with a hole walked through
+  // it, rather than as a closed ring.
+  function findGapEdge(points, z, gapX0, gapX1) {
+    for (let i = 0; i < points.length; i += 1) {
+      const a = points[i];
+      const b = points[(i + 1) % points.length];
+      if (Math.abs(a.y - z) > 1e-6 || Math.abs(b.y - z) > 1e-6) continue;
+      const lo = Math.min(a.x, b.x);
+      const hi = Math.max(a.x, b.x);
+      if (lo <= gapX0 + 1e-6 && hi >= gapX1 - 1e-6) return i;
+    }
+    return -1;
+  }
+
+  function openLoopAtGap(points, z, gapX0, gapX1) {
+    const edge = findGapEdge(points, z, gapX0, gapX1);
+    if (edge < 0) return points.slice();
+    const a = points[edge];
+    const b = points[(edge + 1) % points.length];
+    // walking a -> b, which gap post do we meet first?
+    const first = b.x < a.x ? gapX1 : gapX0;
+    const second = b.x < a.x ? gapX0 : gapX1;
+    const out = [new THREE.Vector2(second, z)];
+    for (let i = 1; i <= points.length; i += 1) {
+      out.push(points[(edge + i) % points.length].clone());
+    }
+    out.push(new THREE.Vector2(first, z));
+    return removeAdjacentDuplicates(out);
+  }
+
+  // Split an open rear-run polyline at the doorway, dropping the span between the posts.
+  // The strip [gapX0, gapX1] meets the rear band only on its straight constant-z run, so
+  // there is exactly one entry and one exit.
+  function splitRunAtGap(points, gapX0, gapX1) {
+    const inside = (p) => p.x > gapX0 && p.x < gapX1;
+    const crossAt = (a, b, x) => {
+      const dx = b.x - a.x;
+      const t = Math.abs(dx) < 1e-8 ? 0 : THREE.MathUtils.clamp((x - a.x) / dx, 0, 1);
+      return new THREE.Vector2(x, THREE.MathUtils.lerp(a.y, b.y, t));
+    };
+    const runs = [];
+    let current = [];
+    for (let i = 0; i < points.length; i += 1) {
+      const p = points[i];
+      if (!inside(p)) {
+        if (i > 0 && inside(points[i - 1])) {
+          current = [crossAt(points[i - 1], p, p.x <= gapX0 ? gapX0 : gapX1)];
+        }
+        current.push(p.clone());
+      } else if (i > 0 && !inside(points[i - 1])) {
+        current.push(crossAt(points[i - 1], p, points[i - 1].x <= gapX0 ? gapX0 : gapX1));
+        runs.push(removeAdjacentDuplicates(current));
+        current = [];
+      }
+    }
+    if (current.length > 1) runs.push(removeAdjacentDuplicates(current));
+    return runs.filter((run) => run.length > 1);
+  }
+
   function makeRingShape(outerPoints, innerPoints) {
     const shape = new THREE.Shape();
     shape.moveTo(outerPoints[0].x, -outerPoints[0].y);
@@ -364,7 +425,10 @@ export function buildKiosk(ctx) {
 
   // 1. Oak carcass, raised service face, and recessed toe kick.
   const outerPlan = planPath(0);
-  const bayX0 = L.kiosk.outer.x0 + L.kiosk.outer.radius + 0.30;
+  const bayX0 = Math.max(
+    L.kiosk.outer.x0 + L.kiosk.outer.radius + 0.30,
+    BH.doorway.x1 + 0.15,
+  );
   const bayX1 = Math.min(
     L.back.sink.x + SINK_CUTOUT_WIDTH * 0.5 + 0.03,
     L.kiosk.outer.x1 - L.kiosk.outer.radius - 0.04,
@@ -380,7 +444,15 @@ export function buildKiosk(ctx) {
     bayBackZ,
     bayEastReturn,
   );
-  const carcassShape = makeRingShape(outerPlan, innerPlan);
+  const carcassShape = makeBandShape(
+    openLoopAtGap(outerPlan, L.kiosk.outer.z0, BH.doorway.x0, BH.doorway.x1),
+    openLoopAtGap(
+      innerPlan,
+      L.kiosk.outer.z0 + L.kiosk.wall,
+      BH.doorway.x0,
+      BH.doorway.x1,
+    ),
+  );
   extrudedMesh(
     'kiosk.carcass',
     carcassShape,
@@ -401,9 +473,19 @@ export function buildKiosk(ctx) {
 
   extrudedMesh(
     'kiosk.toeKick',
-    makeRingShape(
-      planPath(L.kiosk.toeKick.inset),
-      planPath(L.kiosk.wall + L.kiosk.toeKick.inset),
+    makeBandShape(
+      openLoopAtGap(
+        planPath(L.kiosk.toeKick.inset),
+        L.kiosk.outer.z0 + L.kiosk.toeKick.inset,
+        BH.doorway.x0,
+        BH.doorway.x1,
+      ),
+      openLoopAtGap(
+        planPath(L.kiosk.wall + L.kiosk.toeKick.inset),
+        L.kiosk.outer.z0 + L.kiosk.wall + L.kiosk.toeKick.inset,
+        BH.doorway.x0,
+        BH.doorway.x1,
+      ),
     ),
     0,
     L.kiosk.toeKick.h,
@@ -441,7 +523,7 @@ export function buildKiosk(ctx) {
     ]),
     blackMaterial,
   );
-  // Bay usable volume (current layout): x -4.60..4.10, z -2.35..-1.85, floor y 0.10.
+  // Bay usable volume (current layout): x -3.35..4.10, z -2.35..-1.85, floor y 0.10.
 
   // 2. Front and rear composite worktops with a manufactured bullnose.
   const outerFrontWorktop = slice(-OVERHANG, true);
@@ -456,26 +538,37 @@ export function buildKiosk(ctx) {
     worktopMaterial,
   );
 
-  const rearWorktopShape = makeBandShape(outerRearWorktop, innerRearWorktop);
-  addRectangularHole(
-    rearWorktopShape,
-    L.back.sink.x,
-    L.back.sink.z,
-    SINK_CUTOUT_WIDTH,
-    SINK_CUTOUT_DEPTH,
+  const outerRearWorktopRuns = splitRunAtGap(
+    outerRearWorktop,
+    BH.doorway.x0,
+    BH.doorway.x1,
   );
-  addRectangularHole(
-    rearWorktopShape,
-    L.back.iceWell.x,
-    L.back.iceWell.z,
-    ICE_WELL_CUTOUT_WIDTH,
-    ICE_WELL_CUTOUT_DEPTH,
+  const innerRearWorktopRuns = splitRunAtGap(
+    innerRearWorktop,
+    BH.doorway.x0,
+    BH.doorway.x1,
   );
+  const rearWorktopShapes = outerRearWorktopRuns.map((outerRun, index) => (
+    makeBandShape(outerRun, innerRearWorktopRuns[index])
+  ));
+  const rearWorktopCutouts = [
+    [L.back.sink.x, L.back.sink.z, SINK_CUTOUT_WIDTH, SINK_CUTOUT_DEPTH],
+    [L.back.iceWell.x, L.back.iceWell.z, ICE_WELL_CUTOUT_WIDTH, ICE_WELL_CUTOUT_DEPTH],
+  ];
+  for (const [centreX, centreZ, width, depth] of rearWorktopCutouts) {
+    const runIndex = outerRearWorktopRuns.findIndex((run) => {
+      const xs = run.map((point) => point.x);
+      return centreX >= Math.min(...xs) - 1e-6 && centreX <= Math.max(...xs) + 1e-6;
+    });
+    if (runIndex >= 0) {
+      addRectangularHole(rearWorktopShapes[runIndex], centreX, centreZ, width, depth);
+    }
+  }
   // Both holes stay inside the rear band without touching an edge. In particular,
   // the sink spans x 3.67..4.13 before the straight rear run ends at x 4.20.
   extrudedMesh(
     'kiosk.worktop.rear',
-    rearWorktopShape,
+    rearWorktopShapes,
     L.kiosk.backTop - SLAB,
     L.kiosk.backTop,
     worktopMaterial,
@@ -510,6 +603,26 @@ export function buildKiosk(ctx) {
           new THREE.LineCurve3(
             new THREE.Vector3(
               rearStraightX0 + bullnoseRadius,
+              L.kiosk.backTop - bullnoseRadius,
+              rearInnerEdgeZ + bullnoseRadius,
+            ),
+            new THREE.Vector3(
+              BH.doorway.x0,
+              L.kiosk.backTop - bullnoseRadius,
+              rearInnerEdgeZ + bullnoseRadius,
+            ),
+          ),
+          48,
+          bullnoseRadius,
+          6,
+          false,
+        ),
+      },
+      {
+        geometry: new THREE.TubeGeometry(
+          new THREE.LineCurve3(
+            new THREE.Vector3(
+              BH.doorway.x1,
               L.kiosk.backTop - bullnoseRadius,
               rearInnerEdgeZ + bullnoseRadius,
             ),
@@ -1539,7 +1652,7 @@ export function buildKiosk(ctx) {
     return geometry;
   }
 
-  // 9. Four world-space ring colliders; none enters the inner aisle.
+  // 9. Five world-space ring colliders; none enters the inner aisle or doorway.
   const colliderY0 = 0;
   const colliderY1 = L.kiosk.counterTop;
   const colliders = [
@@ -1549,6 +1662,10 @@ export function buildKiosk(ctx) {
     ),
     new THREE.Box3(
       new THREE.Vector3(L.kiosk.outer.x0, colliderY0, L.kiosk.outer.z0),
+      new THREE.Vector3(BH.doorway.x0, colliderY1, L.kiosk.aisle.z0),
+    ),
+    new THREE.Box3(
+      new THREE.Vector3(BH.doorway.x1, colliderY0, L.kiosk.outer.z0),
       new THREE.Vector3(L.kiosk.outer.x1, colliderY1, L.kiosk.aisle.z0),
     ),
     new THREE.Box3(
