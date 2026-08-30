@@ -60,6 +60,21 @@ every hard coordinate in the world; nothing else invents its own numbers.
 `CONTRACT.md` documents the interface each module implements, and `SPEC.md` is
 the art bible the geometry was built from.
 
+## Tests
+
+A dependency-free headless suite covers the parts that are easy to break and
+hard to see: player movement and bounds, all thirteen drink recipes played
+through the real input path, syrup and foam scoring, and touch input including
+a keyboard-parity check and twelve thousand fuzzed events.
+
+```bash
+node test/run-all.mjs
+```
+
+See [test/README.md](test/README.md) for the gotchas — in particular, plain
+`node --test` will not work, because the harnesses need a resolve hook to find
+the vendored three.js.
+
 ## About the setting
 
 The kiosk is modelled from two photographs of a real airport coffee bar — the
