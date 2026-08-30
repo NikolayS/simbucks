@@ -90,7 +90,8 @@
 
 .sb-resume-hint {
   position: absolute;
-  top: clamp(24px, 3.2vmin, 38px);
+  top: auto;
+  bottom: clamp(26px, 3.6vmin, 44px);
   left: 50%;
   width: max-content;
   padding: clamp(5px, .46vmin, 8px) clamp(9px, .72vw, 13px);
