@@ -90,8 +90,8 @@ const APRON_GEO = mergeBoxes([
   { w: 0.086, h: 0.36, d: 0.074, x: 0.16, y: 0.83, z: 0.572, rz: 0.24 },
   { w: 0.086, h: 0.05, d: 1.16, x: -0.16, y: 1.0, z: 0 },
   { w: 0.086, h: 0.05, d: 1.16, x: 0.16, y: 1.0, z: 0 },
-  { w: 0.074, h: 0.84, d: 0.074, x: -0.08, y: 0.58, z: -0.572, rz: -0.15 },
-  { w: 0.074, h: 0.84, d: 0.074, x: 0.08, y: 0.58, z: -0.572, rz: 0.15 },
+  { w: 0.074, h: 0.84, d: 0.074, x: -0.08, y: 0.58, z: -0.572, rz: 0.15 },
+  { w: 0.074, h: 0.84, d: 0.074, x: 0.08, y: 0.58, z: -0.572, rz: -0.15 },
   { w: 0.21, h: 0.11, d: 0.237, x: 0, y: 0.14, z: -0.54 },
 ]);
 const BACKPACK_GEO = mergeBoxes([
@@ -111,8 +111,8 @@ const ROLLER_CASE_GEO = mergeBoxes([
   { w: 0.889, h: 1.10, d: 1.158, x: 0, y: 0, z: 0 },
 ]);
 const ROLLER_WHEELS_GEO = mergeBoxes([
-  { geometry: LIMB_GEO, w: 0.136, h: 0.07, d: 0.289, x: -0.321, y: -0.59, z: 0, rz: HALF_PI },
-  { geometry: LIMB_GEO, w: 0.136, h: 0.07, d: 0.289, x: 0.321, y: -0.59, z: 0, rz: HALF_PI },
+  { geometry: LIMB_GEO, w: 0.11, h: 0.086, d: 0.289, x: -0.321, y: -0.59, z: 0, rz: HALF_PI },
+  { geometry: LIMB_GEO, w: 0.11, h: 0.086, d: 0.289, x: 0.321, y: -0.59, z: 0, rz: HALF_PI },
 ]);
 const ROLLER_HANDLE_GEO = mergeBoxes([
   { w: 0.040, h: 0.84, d: 0.084, x: -0.222, y: 0.76, z: -0.158 },
@@ -316,6 +316,10 @@ function createPerson(ctx, options) {
   const upperLength = isChild ? 0.235 : 0.30;
   const foreLength = isChild ? 0.21 : 0.28;
   const limbWidth = isChild ? 0.068 : 0.082;
+  const headwearScale = headRadius / 0.125;
+  const headwearScaleX = 0.405 * headwearScale;
+  const headwearScaleY = 0.50 * headwearScale;
+  const headwearScaleZ = 0.19 * headwearScale;
   const skinChoice = palette && !Array.isArray(palette) && Number.isFinite(palette.skin)
     ? (palette.skin <= 4 ? SKIN_TONES[Math.floor(palette.skin)] : palette.skin)
     : SKIN_TONES[Math.floor(random() * SKIN_TONES.length)];
@@ -404,12 +408,12 @@ function createPerson(ctx, options) {
       const scarfMat = colourMaterial(0x23262B);
       addMesh(
         head, HEADSCARF_GEO, scarfMat, 'headscarfCap', 0, 0, 0,
-        shoulderWidth, torsoHeight, torsoDepth, false,
+        headwearScaleX, headwearScaleY, headwearScaleZ, false,
       );
     } else {
       addMesh(
         head, CAP_GEO, blackMat, 'capCrown', 0, 0, 0,
-        shoulderWidth, torsoHeight, torsoDepth, false,
+        headwearScaleX, headwearScaleY, headwearScaleZ, false,
       );
     }
   } else {
@@ -418,7 +422,7 @@ function createPerson(ctx, options) {
       const beanieMat = colourMaterial(BEANIE_COLOURS[Math.floor(random() * BEANIE_COLOURS.length)]);
       addMesh(
         head, BEANIE_GEO, beanieMat, 'beanie', 0, 0, 0,
-        shoulderWidth, torsoHeight, torsoDepth, false,
+        headwearScaleX, headwearScaleY, headwearScaleZ, false,
       );
     } else if (hairRoll >= 0.23) {
       const hairMat = colourMaterial(HAIR_COLOURS[Math.floor(random() * HAIR_COLOURS.length)]);
@@ -1266,8 +1270,26 @@ function createCrowd(ctx) {
   const seed = Math.floor(contextRandom(ctx) * 0xFFFFFFFF) ^ Math.floor(contextRandom(ctx) * 0xFFFFFFFF);
   const random = makeRng(seed);
   const people = [];
+  const crowdLod = [];
   const walkers = [];
   let serial = 0;
+  const kioskOuter = layout.kiosk.outer;
+  const kioskCentreX = (kioskOuter.x0 + kioskOuter.x1) * 0.5;
+  const kioskCentreZ = (kioskOuter.z0 + kioskOuter.z1) * 0.5;
+
+  function castsShadowAt(x, z) {
+    const dx = x - kioskCentreX;
+    const dz = z - kioskCentreZ;
+    return dx * dx + dz * dz <= 144;
+  }
+
+  function trackPerson(person) {
+    const lod = { person, level: 0, accumulatedDt: 0, skippedFrames: 0 };
+    group.add(person.group);
+    people.push(person);
+    crowdLod.push(lod);
+    return lod;
+  }
 
   // layout.js exposes only the seating bounds, so this deterministic chair grid fills that known gap.
   const seating = layout.terminal.seating;
@@ -1305,6 +1327,10 @@ function createCrowd(ctx) {
     }
     if (adjacent) continue;
     chosenCodes.push(candidate.code);
+    const seatedOrdinal = chosenCodes.length - 1;
+    const seatedStyle = makeRng((seed + serial * 7919) ^ 0x51A7);
+    const yawJitter = (seatedStyle() * 2 - 1) * 0.14;
+    const seatedYaw = seatedOrdinal < 3 ? (seatedOrdinal === 1 ? -0.5 : 0.5) : yawJitter;
     const seated = makePerson(ctx, {
       role: 'passenger',
       bag: chosenCodes.length <= 2 ? 'roller' : random() < 0.18 ? 'backpack' : 'none',
@@ -1312,13 +1338,15 @@ function createCrowd(ctx) {
       seatHeight: 0.45,
       palette: { phone: chosenCodes.length <= phoneCount },
       scale: 0.94 + random() * 0.12,
+      sitSlouch: 0.04 + seatedStyle() * 0.12,
+      sitArm: seatedStyle() < 0.5 ? 'left' : 'right',
+      castShadow: castsShadowAt(candidate.x, candidate.z),
     });
     serial += 1;
     seated.group.position.set(candidate.x, 0, candidate.z);
-    seated.group.rotation.y = 0;
+    seated.group.rotation.y = seatedYaw;
     seated.setPose('sit');
-    group.add(seated.group);
-    people.push(seated);
+    trackPerson(seated);
   }
 
   const boxes = crowdKeepouts(layout);
@@ -1359,14 +1387,14 @@ function createCrowd(ctx) {
       seed: seed + serial * 7919,
       palette: child ? { child: true, phone: false } : { phone: false },
       scale: child ? 0.96 + random() * 0.08 : 0.94 + random() * 0.12,
+      castShadow: castsShadowAt(path[waypointIndex].x, path[waypointIndex].z),
     });
     serial += 1;
     walker.group.position.copy(path[waypointIndex]);
     walker.group.rotation.y = random() * TAU;
     walker.setPose('idle');
-    group.add(walker.group);
-    people.push(walker);
-    walkers.push({ person: walker, path, index: waypointIndex, speed, delay });
+    const lod = trackPerson(walker);
+    walkers.push({ person: walker, path, index: waypointIndex, speed, delay, lod });
   }
 
   const tables = layout.terminal.tables;
@@ -1376,6 +1404,7 @@ function createCrowd(ctx) {
     const side = stool === 1 ? -1 : 1;
     const x = table.x - tableWidth * 0.5 + 0.6 + (stool === 2 ? 1.6 : stool * 0.8);
     const z = table.z + side * 0.72;
+    const sitterStyle = makeRng((seed + serial * 7919) ^ 0x57A1);
     const sitter = makePerson(ctx, {
       role: 'passenger',
       bag: 'none',
@@ -1383,29 +1412,110 @@ function createCrowd(ctx) {
       seatHeight: 0.75,
       palette: { phone: stool === 0 },
       scale: 0.96 + random() * 0.10,
+      sitSlouch: 0.04 + sitterStyle() * 0.12,
+      sitArm: sitterStyle() < 0.5 ? 'left' : 'right',
+      castShadow: castsShadowAt(x, z),
     });
     serial += 1;
     sitter.group.position.set(x, 0, z);
-    sitter.group.rotation.y = side > 0 ? Math.PI : 0;
+    sitter.group.rotation.y = (side > 0 ? Math.PI : 0) + (sitterStyle() * 2 - 1) * 0.14;
     sitter.setPose('sit');
-    group.add(sitter.group);
-    people.push(sitter);
+    trackPerson(sitter);
+  }
+
+  const cameraScratch = new THREE.Vector3();
+  let lodCursor = 0;
+
+  function readCameraPosition() {
+    const camera = ctx?.camera;
+    if (!camera) return false;
+    try {
+      if (typeof camera.getWorldPosition === 'function') camera.getWorldPosition(cameraScratch);
+      else if (camera.position) cameraScratch.copy(camera.position);
+      else return false;
+      return Number.isFinite(cameraScratch.x) && Number.isFinite(cameraScratch.z);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function startNextWaypoint(walker) {
+    walker.index = (walker.index + 1) % walker.path.length;
+    walker.person.walkTo(walker.path[walker.index], walker.speed);
+  }
+
+  function advanceInvisibleWalker(walker, delta) {
+    if (!walker.person.isMoving()) startNextWaypoint(walker);
+    let target = walker.path[walker.index];
+    let dx = target.x - walker.person.group.position.x;
+    let dz = target.z - walker.person.group.position.z;
+    let distance = Math.sqrt(dx * dx + dz * dz);
+    if (distance <= STOP_DISTANCE + 0.00001) {
+      startNextWaypoint(walker);
+      target = walker.path[walker.index];
+      dx = target.x - walker.person.group.position.x;
+      dz = target.z - walker.person.group.position.z;
+      distance = Math.sqrt(dx * dx + dz * dz);
+    }
+    if (distance <= STOP_DISTANCE) return;
+    const travel = Math.min(walker.speed * delta, distance - STOP_DISTANCE);
+    if (travel <= 0) return;
+    const inverseDistance = 1 / distance;
+    walker.person.group.position.x += dx * inverseDistance * travel;
+    walker.person.group.position.z += dz * inverseDistance * travel;
+    walker.person.group.rotation.y = Math.atan2(dx, dz);
+    if (distance - STOP_DISTANCE <= travel + 0.00001) startNextWaypoint(walker);
   }
 
   return {
     group,
     update(dt, t) {
       const delta = Number.isFinite(dt) ? dt : 0;
+      const hasCamera = readCameraPosition();
+      const checks = Math.min(4, crowdLod.length);
+      for (let checked = 0; checked < checks; checked += 1) {
+        const lod = crowdLod[lodCursor];
+        lodCursor = (lodCursor + 1) % crowdLod.length;
+        let level = 0;
+        if (hasCamera) {
+          const dx = lod.person.group.position.x - cameraScratch.x;
+          const dz = lod.person.group.position.z - cameraScratch.z;
+          const distanceSq = dx * dx + dz * dz;
+          level = distanceSq > 1156 ? 2 : distanceSq > 256 ? 1 : 0;
+        }
+        lod.level = level;
+        lod.person.group.visible = level !== 2;
+        if (level === 2) {
+          lod.accumulatedDt = 0;
+          lod.skippedFrames = 0;
+        }
+      }
       for (let i = 0; i < walkers.length; i += 1) {
         const walker = walkers[i];
         if (walker.delay > 0) {
           walker.delay -= delta;
+        } else if (walker.lod.level === 2) {
+          advanceInvisibleWalker(walker, delta);
         } else if (!walker.person.isMoving()) {
-          walker.index = (walker.index + 1) % walker.path.length;
-          walker.person.walkTo(walker.path[walker.index], walker.speed);
+          startNextWaypoint(walker);
         }
       }
-      for (let i = 0; i < people.length; i += 1) people[i].update(delta, t);
+      for (let i = 0; i < people.length; i += 1) {
+        const lod = crowdLod[i];
+        if (lod.level === 2) continue;
+        if (lod.level === 1) {
+          lod.accumulatedDt += delta;
+          lod.skippedFrames += 1;
+          if (lod.skippedFrames < 3) continue;
+          lod.person.update(lod.accumulatedDt, t);
+          lod.accumulatedDt = 0;
+          lod.skippedFrames = 0;
+        } else {
+          lod.person.update(delta + lod.accumulatedDt, t);
+          lod.accumulatedDt = 0;
+          lod.skippedFrames = 0;
+        }
+      }
     },
   };
 }

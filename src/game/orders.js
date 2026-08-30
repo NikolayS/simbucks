@@ -311,12 +311,14 @@ export function orderText(order) {
         trailing.push(cleanText(syrup.label));
       }
     }
+    // Foam is build-critical, so it outlasts optional modifier clauses when trimming.
+    let foamClause = '';
     if (!mods.some(mod => mod?.id === 'noFoam')) {
       const foamStep = Array.isArray(order.steps)
         ? order.steps.find(step => step?.station === 'steamWand' && step.param === 'steam')
         : null;
       const foam = foamLabel(foamStep?.foam);
-      if (foam) trailing.push(foam);
+      if (foam) foamClause = foam;
     }
 
     const prefix = `${size}${leading.length ? ` ${leading.join(' ')}` : ''}`;
@@ -324,7 +326,8 @@ export function orderText(order) {
     const shownTrailing = trailing.slice();
     let foodClause = order.food?.name ? ` + ${cleanText(order.food.name)}` : '';
     const render = currentDrink => cleanText(`${prefix} ${currentDrink}`
-      + `${shownTrailing.length ? `, ${shownTrailing.join(', ')}` : ''}`
+      + `${shownTrailing.length || foamClause
+        ? `, ${[...shownTrailing, foamClause].filter(Boolean).join(', ')}` : ''}`
       + `${foodClause}${suffix}`);
 
     let text = render(drinkName);
@@ -334,6 +337,10 @@ export function orderText(order) {
     }
     while (text.length > 90 && shownTrailing.length) {
       shownTrailing.pop();
+      text = render(drinkName);
+    }
+    if (text.length > 90 && foamClause) {
+      foamClause = '';
       text = render(drinkName);
     }
     if (text.length > 90) {

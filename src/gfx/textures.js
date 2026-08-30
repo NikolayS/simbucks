@@ -482,7 +482,8 @@ function drawMural(g, w, h) {
     for (let j = 0; j < count; j += 1) {
       const a = j * Math.PI * 2 / count + (i % 3) * 0.27;
       const distance = j === 0 ? 0 : baseR * (0.9 + rng() * 0.45);
-      const r = baseR * 1.3 * (j === 0 ? 1 : 0.82 + rng() * 0.28);
+      const radiusVariation = 0.82 + rng() * 0.28;
+      const r = baseR * 1.3 * (j === 0 ? 1 : radiusVariation);
       cherry(g, cx + Math.cos(a) * distance, cy + Math.sin(a) * distance, r, clusterColors[(i + j) % 3]);
     }
   }
@@ -1428,17 +1429,17 @@ function croissant(g, x, y, scale) {
   g.scale(scale, scale);
   g.fillStyle = '#D6A45C';
   g.beginPath();
-  g.moveTo(-68, 18);
-  g.bezierCurveTo(-62, -20, -36, -44, 0, -46);
-  g.bezierCurveTo(36, -44, 62, -20, 68, 18);
-  g.bezierCurveTo(47, 3, 25, -15, 0, -17);
-  g.bezierCurveTo(-25, -15, -47, 3, -68, 18);
+  g.moveTo(-62, 16);
+  g.bezierCurveTo(-57, -19, -34, -44, 0, -46);
+  g.bezierCurveTo(34, -44, 57, -19, 62, 16);
+  g.bezierCurveTo(43, 2, 23, -15, 0, -17);
+  g.bezierCurveTo(-23, -15, -43, 2, -62, 16);
   g.closePath();
   g.fill();
   g.save();
   g.clip();
   g.fillStyle = 'rgba(143,83,35,0.38)';
-  g.fillRect(-72, -26, 144, 50);
+  g.fillRect(-64, -26, 128, 48);
   g.restore();
   g.strokeStyle = '#A87435';
   g.lineWidth = 3.2;
@@ -1453,26 +1454,57 @@ function croissant(g, x, y, scale) {
 }
 
 function pain(g, x, y, scale) {
-  g.fillStyle = '#C08B4E';
-  roundRect(g, x - 49 * scale, y - 31 * scale, 98 * scale, 62 * scale, 13 * scale); g.fill();
-  hairline(g, x - 23 * scale, y - 25 * scale, x - 23 * scale, y + 25 * scale, '#5B3522', 8 * scale);
-  hairline(g, x + 23 * scale, y - 25 * scale, x + 23 * scale, y + 25 * scale, '#5B3522', 8 * scale);
+  g.save();
+  g.translate(x, y);
+  g.scale(scale, scale);
+  g.fillStyle = '#A86E37';
+  roundRect(g, -55, -36, 110, 72, 24);
+  g.fill();
+  g.fillStyle = '#D9A45E';
+  g.beginPath();
+  g.moveTo(-49, -5);
+  g.bezierCurveTo(-45, -32, -26, -43, 0, -45);
+  g.bezierCurveTo(26, -43, 45, -32, 49, -5);
+  g.quadraticCurveTo(24, 6, 0, 7);
+  g.quadraticCurveTo(-24, 6, -49, -5);
+  g.closePath();
+  g.fill();
+  g.strokeStyle = '#9B6332';
+  g.lineWidth = 3;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(0, -40);
+  g.bezierCurveTo(-3, -22, 3, 7, 0, 29);
+  g.stroke();
+  g.fillStyle = '#4A2C22';
+  for (const endX of [-49, 49]) {
+    for (const batonY of [-12, 13]) {
+      g.beginPath();
+      g.ellipse(endX, batonY, 5, 4.5, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  g.restore();
 }
 
 function muffin(g, x, y, scale, seed) {
   const rng = mulberry32(seed);
+  g.save();
+  g.translate(x, y);
+  g.scale(scale, scale);
   g.fillStyle = '#A8764F';
   g.beginPath();
-  g.moveTo(x - 34 * scale, y + 22 * scale); g.lineTo(x - 27 * scale, y + 63 * scale);
-  g.lineTo(x + 27 * scale, y + 63 * scale); g.lineTo(x + 34 * scale, y + 22 * scale); g.closePath(); g.fill();
+  g.moveTo(-34, 22); g.lineTo(-27, 63);
+  g.lineTo(27, 63); g.lineTo(34, 22); g.closePath(); g.fill();
   g.fillStyle = '#B98A5E';
-  g.beginPath(); g.arc(x, y + 11 * scale, 47 * scale, Math.PI, 0); g.lineTo(x + 47 * scale, y + 28 * scale); g.lineTo(x - 47 * scale, y + 28 * scale); g.closePath(); g.fill();
+  g.beginPath(); g.arc(0, 11, 47, Math.PI, 0); g.lineTo(47, 28); g.lineTo(-47, 28); g.closePath(); g.fill();
   g.fillStyle = '#6B4A2E';
   for (let i = 0; i < 18; i += 1) {
     const a = rng() * Math.PI;
-    const rr = rng() * 38 * scale;
-    g.beginPath(); g.arc(x + Math.cos(a) * rr, y + 12 * scale - Math.sin(a) * rr * 0.7, 2 + rng() * 2, 0, Math.PI * 2); g.fill();
+    const rr = rng() * 38;
+    g.beginPath(); g.arc(Math.cos(a) * rr, 12 - Math.sin(a) * rr * 0.7, 2 + rng() * 2, 0, Math.PI * 2); g.fill();
   }
+  g.restore();
 }
 
 function drawPastryTray(g, w, h) {
@@ -1482,46 +1514,43 @@ function drawPastryTray(g, w, h) {
   g.lineWidth = 2;
   for (let x = 12; x < w; x += 24) hairline(g, x, 0, x, h, '#2A2C31', 2);
   for (let y = 12; y < h; y += 24) hairline(g, 0, y, w, y, '#2A2C31', 2);
-  const itemPitch = 142;
-  const evenRow = [58, 58 + itemPitch, 58 + itemPitch * 2, 58 + itemPitch * 3];
-  const offsetRow = [58 + itemPitch / 2, 58 + itemPitch * 1.5, 58 + itemPitch * 2.5];
-  for (const x of evenRow) croissant(g, x, 92, 1.34);
+  const innerInset = 14;
+  const itemCount = 3;
+  const itemGap = 18;
+  const usableWidth = w - innerInset * 2;
+  const itemPitch = usableWidth / (itemCount + 0.5);
+  const itemWidth = itemPitch - itemGap;
+  const halfItemWidth = itemWidth / 2;
+  const edgePadding = itemGap / 2;
+  const clampX = (x) => Math.max(
+    innerInset + halfItemWidth,
+    Math.min(w - innerInset - halfItemWidth, x),
+  );
+  const rowX = (staggered) => Array.from({ length: itemCount }, (_, i) => clampX(
+    innerInset + edgePadding + halfItemWidth + i * itemPitch + (staggered ? itemPitch / 2 : 0),
+  ));
 
-  const fullPain = (x, y, scale) => {
-    g.save();
-    g.translate(x, y);
-    g.scale(scale, scale);
-    g.fillStyle = '#A86E37';
-    roundRect(g, -55, -36, 110, 72, 24);
-    g.fill();
-    g.fillStyle = '#D9A45E';
-    g.beginPath();
-    g.moveTo(-49, -5);
-    g.bezierCurveTo(-45, -32, -26, -43, 0, -45);
-    g.bezierCurveTo(26, -43, 45, -32, 49, -5);
-    g.quadraticCurveTo(24, 6, 0, 7);
-    g.quadraticCurveTo(-24, 6, -49, -5);
-    g.closePath();
-    g.fill();
-    g.strokeStyle = '#9B6332';
-    g.lineWidth = 3;
-    g.lineCap = 'round';
-    g.beginPath();
-    g.moveTo(0, -40);
-    g.bezierCurveTo(-3, -22, 3, 7, 0, 29);
-    g.stroke();
-    g.fillStyle = '#4A2C22';
-    for (const endX of [-50, 50]) {
-      for (const batonY of [-12, 13]) {
-        g.beginPath();
-        g.ellipse(endX, batonY, 6, 4.5, 0, 0, Math.PI * 2);
-        g.fill();
-      }
-    }
-    g.restore();
-  };
-  for (const x of offsetRow) fullPain(x, 238, 1.3);
-  for (let i = 0; i < evenRow.length; i += 1) muffin(g, evenRow[i], 374, 1.26, 0xB010 + i);
+  const croissantScale = itemWidth / 124;
+  const painScale = itemWidth / 110;
+  const muffinScale = itemWidth / 94;
+  const rowBounds = [
+    [-46 * croissantScale, 16 * croissantScale],
+    [-45 * painScale, 36 * painScale],
+    [-36 * muffinScale, 63 * muffinScale],
+  ];
+  const usableHeight = h - innerInset * 2;
+  const occupiedHeight = rowBounds.reduce((sum, [top, bottom]) => sum + bottom - top, 0);
+  const rowGap = (usableHeight - occupiedHeight) / (rowBounds.length + 1);
+  const rowY = [];
+  let rowTop = innerInset + rowGap;
+  for (const [top, bottom] of rowBounds) {
+    rowY.push(rowTop - top);
+    rowTop += bottom - top + rowGap;
+  }
+
+  for (const x of rowX(false)) croissant(g, x, rowY[0], croissantScale);
+  for (const x of rowX(true)) pain(g, x, rowY[1], painScale);
+  for (const [i, x] of rowX(false).entries()) muffin(g, x, rowY[2], muffinScale, 0xB010 + i);
   g.strokeStyle = '#54575D';
   g.lineWidth = 8;
   g.strokeRect(6, 6, w - 12, h - 12);

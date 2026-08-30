@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 const CONFIG = {
-  rest: { x: 0.2072, y: -0.2123, z: -0.40, rx: -0.16, ry: -0.34, rz: 0.14 },
+  rest: { x: 0.2100, y: -0.2000, z: -0.44, rx: -0.16, ry: -0.34, rz: 0.14 },
   motion: {
     maxDt: 0.05,
     idleAmplitude: 0.004,
@@ -16,47 +16,48 @@ const CONFIG = {
     lookLimitY: 0.025,
     springStrength: 105,
     springDamping: 15,
-    minRigX: 0.1703,
+    minRigX: 0.1750,
     idleVerticalRatio: 0.55,
     phaseWraps: 8,
     pitchLagRotation: 0.8,
     yawLagRotation: 1.1,
   },
   hand: {
-    forearmTopRadius: 0.034,
-    forearmBottomRadius: 0.040,
-    forearmLength: 0.22,
-    forearmX: 0.047,
-    forearmY: -0.105,
-    forearmZ: -0.007,
+    forearmTopRadius: 0.01938,
+    forearmBottomRadius: 0.02280,
+    forearmLength: 0.12540,
+    forearmX: 0.02679,
+    forearmY: -0.05985,
+    forearmZ: -0.00399,
     forearmRX: -0.16,
-    forearmRZ: 0.36,
-    cuffRadius: 0.046,
-    cuffHeight: 0.045,
-    cuffX: 0.087,
-    cuffY: -0.207,
-    cuffZ: 0.011,
-    palmW: 0.085,
-    palmH: 0.028,
-    palmD: 0.090,
-    fingerW: 0.018,
-    fingerH: 0.020,
-    fingerD: 0.055,
-    fingerY: 0.001,
-    fingerZ: -0.043,
-    fingerMeshZ: -0.027,
-    thumbW: 0.021,
-    thumbH: 0.022,
-    thumbD: 0.055,
-    thumbX: -0.050,
-    thumbY: -0.003,
-    thumbZ: 0.005,
+    forearmRZ: 0.12,
+    cuffRadius: 0.028,
+    cuffHeight: 0.02565,
+    cuffX: 0.01900,
+    cuffY: 0.00393,
+    cuffZ: -0.01428,
+    palmW: 0.04845,
+    palmH: 0.01596,
+    palmD: 0.05130,
+    fingerW: 0.01026,
+    fingerH: 0.01140,
+    fingerD: 0.03135,
+    fingerY: 0.00057,
+    fingerZ: -0.02451,
+    fingerMeshZ: -0.01539,
+    thumbW: 0.01197,
+    thumbH: 0.01254,
+    thumbD: 0.03135,
+    thumbX: -0.02850,
+    thumbY: -0.00171,
+    thumbZ: 0.00285,
     thumbRX: -0.28,
     thumbRY: 0.62,
     thumbRZ: -0.30,
     anchorX: 0,
-    anchorY: 0.025,
-    anchorZ: -0.075,
+    anchorY: 0.012,
+    anchorZ: -0.055,
+    skinTextureSize: 32,
   },
   cup: {
     topRadius: 0.043,
@@ -255,6 +256,28 @@ function makeSteamTexture() {
   return texture;
 }
 
+function makeSkinTexture() {
+  if (typeof document === 'undefined' || !document.createElement) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = 4;
+  canvas.height = CONFIG.hand.skinTextureSize;
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+  const gradient = context.createLinearGradient(0, 0, 0, CONFIG.hand.skinTextureSize);
+  gradient.addColorStop(0, 'rgb(255,255,255)');
+  gradient.addColorStop(0.52, 'rgb(244,244,244)');
+  gradient.addColorStop(1, 'rgb(220,220,220)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 export function createHands(ctx) {
   const ownedGeometries = [];
   const ownedMaterials = [];
@@ -284,7 +307,19 @@ export function createHands(ctx) {
     return value;
   }
 
-  const skinMaterial = sharedMaterial(ctx, 'skin') || standardFallback(0xC9A07C, 0.75, 0);
+  const skinTexture = makeSkinTexture();
+  const skinMaterial = ownMaterial(new THREE.MeshStandardMaterial({
+    color: 0xA5714A,
+    map: skinTexture,
+    roughness: 0.8,
+    metalness: 0,
+  }));
+  const fingerMaterial = ownMaterial(new THREE.MeshStandardMaterial({
+    color: 0x8A5A38,
+    map: skinTexture,
+    roughness: 0.82,
+    metalness: 0,
+  }));
   const blackMatteMaterial = sharedMaterial(ctx, 'blackMatte') || standardFallback(0x14161A, 0.86, 0.02);
   const blackGlossMaterial = sharedMaterial(ctx, 'blackGloss') || standardFallback(0x1B1E24, 0.30, 0.08);
   const chromeMaterial = sharedMaterial(ctx, 'chrome') || standardFallback(0xD8DCE0, 0.23, 0.88);
@@ -299,7 +334,7 @@ export function createHands(ctx) {
     CONFIG.hand.forearmLength,
     10,
   ));
-  const forearm = mesh(forearmGeometry, skinMaterial, rig);
+  const forearm = mesh(forearmGeometry, blackMatteMaterial, rig);
   forearm.position.set(CONFIG.hand.forearmX, CONFIG.hand.forearmY, CONFIG.hand.forearmZ);
   forearm.rotation.set(CONFIG.hand.forearmRX, 0, CONFIG.hand.forearmRZ);
 
@@ -326,7 +361,7 @@ export function createHands(ctx) {
     CONFIG.hand.fingerD,
   ));
   const fingerGroups = [];
-  const fingerX = [-0.030, -0.010, 0.010, 0.030];
+  const fingerX = [-0.01710, -0.00570, 0.00570, 0.01710];
   for (let index = 0; index < 4; index += 1) {
     const fingerGroup = new THREE.Group();
     fingerGroup.position.set(
@@ -334,7 +369,7 @@ export function createHands(ctx) {
       CONFIG.hand.fingerY,
       CONFIG.hand.fingerZ,
     );
-    const finger = mesh(fingerGeometry, skinMaterial, fingerGroup);
+    const finger = mesh(fingerGeometry, fingerMaterial, fingerGroup);
     finger.position.z = CONFIG.hand.fingerMeshZ;
     fingerGroup.rotation.x = index === 0 ? -0.035 : index === 3 ? 0.045 : 0;
     rig.add(fingerGroup);
@@ -350,7 +385,7 @@ export function createHands(ctx) {
     CONFIG.hand.thumbH,
     CONFIG.hand.thumbD,
   ));
-  const thumb = mesh(thumbGeometry, skinMaterial, thumbGroup);
+  const thumb = mesh(thumbGeometry, fingerMaterial, thumbGroup);
   thumb.position.z = -CONFIG.hand.thumbD * 0.38;
   rig.add(thumbGroup);
 
@@ -979,6 +1014,7 @@ export function createHands(ctx) {
     for (let index = 0; index < ownedMaterials.length; index += 1) {
       ownedMaterials[index].dispose();
     }
+    if (skinTexture) skinTexture.dispose();
     if (steamTexture) steamTexture.dispose();
     if (ctx?.hands === api) ctx.hands = null;
   }

@@ -227,7 +227,7 @@ export function buildProps(ctx) {
 
   function addCollider(cx, cy, cz, sx, sy, sz, pad = 0.15) {
     colliders.push(new THREE.Box3(
-      new THREE.Vector3(cx - sx / 2 - pad, cy - sy / 2 - pad, cz - sz / 2 - pad),
+      new THREE.Vector3(cx - sx / 2 - pad, Math.max(0, cy - sy / 2 - pad), cz - sz / 2 - pad),
       new THREE.Vector3(cx + sx / 2 + pad, cy + sy / 2 + pad, cz + sz / 2 + pad),
     ));
   }
@@ -277,8 +277,46 @@ export function buildProps(ctx) {
     return false;
   }
 
+  function blockedBox(cx, cz, sx, sz) {
+    const hx = sx / 2;
+    const hz = sz / 2;
+    const rectX0 = cx - hx;
+    const rectX1 = cx + hx;
+    const rectZ0 = cz - hz;
+    const rectZ1 = cz + hz;
+    const outer = L.kiosk.outer;
+    const kioskX0 = outer.x0 - 0.5;
+    const kioskX1 = outer.x1 + 0.5;
+    const kioskZ0 = outer.z0 - 0.5;
+    const kioskZ1 = outer.z1 + 0.5;
+    if (rectX1 >= kioskX0 && rectX0 <= kioskX1
+      && rectZ1 >= kioskZ0 && rectZ0 <= kioskZ1) return true;
+
+    const order = L.queue.order;
+    for (let i = 0; i < order.n; i += 1) {
+      const slotX = order.x + order.dx * i;
+      const slotZ = order.z;
+      const nearestX = THREE.MathUtils.clamp(slotX, rectX0, rectX1);
+      const nearestZ = THREE.MathUtils.clamp(slotZ, rectZ0, rectZ1);
+      if (Math.hypot(slotX - nearestX, slotZ - nearestZ) <= 0.6) return true;
+    }
+    const pickup = L.queue.pickup;
+    for (let i = 0; i < pickup.n; i += 1) {
+      const slotX = pickup.x + pickup.dx * i;
+      const slotZ = pickup.z;
+      const nearestX = THREE.MathUtils.clamp(slotX, rectX0, rectX1);
+      const nearestZ = THREE.MathUtils.clamp(slotZ, rectZ0, rectZ1);
+      if (Math.hypot(slotX - nearestX, slotZ - nearestZ) <= 0.6) return true;
+    }
+    return false;
+  }
+
   function placeBox(key, cx, cy, cz, sx, sy, sz, rotY = 0, rotX = 0, colour = null) {
-    if (blocked(cx, cz, Math.hypot(sx, sz) / 2)) return false;
+    const cosine = Math.abs(Math.cos(rotY));
+    const sine = Math.abs(Math.sin(rotY));
+    const worldWidth = cosine * sx + sine * sz;
+    const worldDepth = sine * sx + cosine * sz;
+    if (blockedBox(cx, cz, worldWidth, worldDepth)) return false;
     boxes.add(key, cx, cy, cz, sx, sy, sz, rotY, rotX, colour);
     return true;
   }
@@ -307,16 +345,18 @@ export function buildProps(ctx) {
     };
   }
 
+  const BANKS = [
+    { id: 'A', x: T.seating.x0 + 1.8, z: T.seating.z0 + 1.6, rotY: 0.10, power: true },
+    { id: 'B', x: T.seating.x0 + 1.8, z: T.seating.z0 + 4.6, rotY: -0.10, power: false },
+    { id: 'C', x: T.seating.x0 + 5.8, z: T.seating.z0 + 1.4, rotY: 0.30, power: true },
+    { id: 'D', x: T.seating.x0 + 2.2, z: T.seating.z1 - 2.0, rotY: -0.22, power: false },
+    { id: 'E', x: T.seating.x0 + 6.4, z: T.seating.z1 - 1.6, rotY: 0.42, power: true },
+  ];
+
   function buildSeating() {
-    const seating = T.seating;
-    const banks = [
-      { id: 'A', x: seating.x0 + 1.8, z: seating.z0 + 1.6, rotY: 0.10, power: true },
-      { id: 'B', x: seating.x0 + 1.8, z: seating.z0 + 4.6, rotY: -0.10, power: false },
-      { id: 'C', x: seating.x0 + 5.8, z: seating.z0 + 1.4, rotY: 0.30, power: true },
-      { id: 'D', x: seating.x0 + 2.2, z: seating.z1 - 2.0, rotY: -0.22, power: false },
-      { id: 'E', x: seating.x0 + 6.4, z: seating.z1 - 1.6, rotY: 0.42, power: true },
-    ];
-    const placedBanks = banks.filter((bank) => !blocked(bank.x, bank.z, bank.power ? 2.18 : 1.82));
+    const placedBanks = BANKS.filter((bank) => (
+      !blocked(bank.x, bank.z, bank.power ? 2.18 : 1.82)
+    ));
     const chairMatrices = [];
     const bankMatrix = new THREE.Matrix4();
     const localMatrix = new THREE.Matrix4();
@@ -533,11 +573,11 @@ export function buildProps(ctx) {
     }
 
     const columnCount = 7;
-    const rowCount = 3;
+    const rowCount = 4;
     const columnStart = x0 + 0.16;
     const columnEnd = x1 - 0.16;
-    const rowStart = z0 + 0.34;
-    const rowEnd = z1 - 0.30;
+    const rowStart = z0 + 0.30;
+    const rowEnd = z1 - 0.26;
     const columnPitch = (columnEnd - columnStart) / (columnCount - 1);
     const rowPitch = (rowEnd - rowStart) / (rowCount - 1);
 
@@ -595,8 +635,150 @@ export function buildProps(ctx) {
       width, carcassTop, depth, 0);
   }
 
-  // Part 3 hook: intentionally empty until the airport-dressing pass.
-  function buildDressing() {}
+  function buildDressing() {
+    customMaterials.set('coneYellow', m('rubber', {
+      color: 0xF2C21A,
+      roughness: 0.62,
+    }));
+    customMaterials.set('belts', m('blackGloss', {
+      color: 0x1B1E24,
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }));
+    customMaterials.set('cartGrey', m('cloth', { color: 0x6E737A }));
+    customMaterials.set('bucketYellow', m('rubber', { color: 0xE8B317 }));
+    customMaterials.set('crateGrey', m('cloth', { color: 0x8E9298 }));
+
+    const coneHeight = 0.62;
+    const coneDepth = 0.022;
+    const coneTilt = 0.30;
+    const coneY = Math.abs(Math.cos(coneTilt)) * coneHeight / 2
+      + Math.abs(Math.sin(coneTilt)) * coneDepth / 2;
+    for (const [x, z] of [[-9.80, 5.60], [2.20, 6.60], [-4.00, 8.40]]) {
+      const rotY = rng() * Math.PI * 2;
+      const cone = { x, z, rotY };
+      const nearBoard = worldPoint(cone, 0, -0.09);
+      const farBoard = worldPoint(cone, 0, 0.09);
+      placeBox('coneYellow', nearBoard.x, coneY, nearBoard.z,
+        0.30, coneHeight, coneDepth, rotY, coneTilt);
+      placeBox('coneYellow', farBoard.x, coneY, farBoard.z,
+        0.30, coneHeight, coneDepth, rotY, -coneTilt);
+    }
+
+    const stanchionRuns = [
+      [-7.50, -6.00, -4.50, -3.00],
+      [1.00, 2.50, 4.00, 5.50],
+    ];
+    for (const run of stanchionRuns) {
+      for (const x of run) {
+        placeCylinder('blackMatte', x, 0.03, 4.80, 0.17, 0.06, 12);
+        placeCylinder('chrome', x, 0.56, 4.80, 0.022, 1.00, 8);
+        placeCylinder('blackMatte', x, 1.105, 4.80, 0.035, 0.09, 8);
+      }
+      for (let i = 0; i < run.length - 1; i += 1) {
+        const x0 = run[i];
+        const x1 = run[i + 1];
+        placeBox('belts', (x0 + x1) / 2, 0.92, 4.80,
+          x1 - x0, 0.05, 0.006);
+      }
+    }
+
+    const cart = { x: -6.20, z: 7.40, rotY: 0.35 };
+    const cartBodyWidth = 0.80;
+    const cartBodyHeight = 0.55;
+    const cartBodyDepth = 0.50;
+    const cartBodyBottom = 0.12;
+    const cartBodyY = cartBodyBottom + cartBodyHeight / 2;
+    placeBox('cartGrey', cart.x, cartBodyY, cart.z,
+      cartBodyWidth, cartBodyHeight, cartBodyDepth, cart.rotY);
+    for (const localX of [-0.34, 0.34]) {
+      for (const localZ of [-0.25, 0.25]) {
+        const castor = worldPoint(cart, localX, localZ);
+        placeCylinder('rubber', castor.x, 0.055, castor.z,
+          0.055, 0.04, 8, 0, Math.PI / 2);
+      }
+    }
+    for (const localX of [-0.30, 0.30]) {
+      const upright = worldPoint(cart, localX, -0.25);
+      placeCylinder('chrome', upright.x, 0.895, upright.z,
+        0.016, 0.45, 8);
+    }
+    const crossbar = worldPoint(cart, 0, -0.25);
+    placeBox('chrome', crossbar.x, 1.08, crossbar.z,
+      0.60, 0.03, 0.03, cart.rotY);
+
+    const bucket = worldPoint(cart, 0.62, 0);
+    placeBox('bucketYellow', bucket.x, 0.15, bucket.z,
+      0.42, 0.30, 0.34, cart.rotY);
+    placeBox('blackMatte', bucket.x, 0.325, bucket.z,
+      0.44, 0.05, 0.12, cart.rotY);
+    const mopTilt = 0.32;
+    const mopLength = 1.25;
+    const mopLowerY = 0.18;
+    const mopX = bucket.x - Math.sin(mopTilt) * mopLength / 2;
+    const mopY = mopLowerY + Math.cos(mopTilt) * mopLength / 2;
+    placeCylinder('cardboard', mopX, mopY, bucket.z,
+      0.018, mopLength, 8, 0, mopTilt);
+
+    const cartCosine = Math.abs(Math.cos(cart.rotY));
+    const cartSine = Math.abs(Math.sin(cart.rotY));
+    addCollider(cart.x, 0.55, cart.z,
+      cartCosine * cartBodyWidth + cartSine * cartBodyDepth,
+      1.10,
+      cartSine * cartBodyWidth + cartCosine * cartBodyDepth,
+      0);
+
+    const crateZ = -3.85;
+    for (const columnX of [-9.10, -8.10]) {
+      for (let k = 0; k < 3; k += 1) {
+        const x = columnX + (rng() * 2 - 1) * 0.03;
+        const z = crateZ + (rng() * 2 - 1) * 0.03;
+        const rotY = (rng() * 2 - 1) * 0.07;
+        const bottom = k * 0.42;
+        placeBox('crateGrey', x, bottom + 0.21, z,
+          0.60, 0.42, 0.44, rotY);
+        placeBox('blackMatte', x, bottom + 0.42 + 0.015, z,
+          0.60, 0.03, 0.44, rotY);
+      }
+    }
+    addCollider(-8.50, 0.645, -3.85, 1.80, 1.29, 0.90, 0);
+
+    const bagLocalX = [-1.20, 1.30, -1.10, 1.25, -1.15];
+    const bagColours = [0x2C3038, 0x3E4A5A, 0x5A4238, 0x2F4F45, 0x6B6560];
+    BANKS.forEach((bank, index) => {
+      const bagPosition = worldPoint(bank, bagLocalX[index], 0.95);
+      const bag = {
+        x: bagPosition.x,
+        z: bagPosition.z,
+        rotY: bank.rotY + (rng() * 2 - 1) * 0.25,
+      };
+      placeBox('cloth', bag.x, 0.32, bag.z,
+        0.36, 0.55, 0.22, bag.rotY, 0, bagColours[index]);
+      placeBox('blackMatte', bag.x, 0.615, bag.z,
+        0.34, 0.04, 0.20, bag.rotY);
+
+      for (const localX of [-0.10, 0.10]) {
+        const rail = worldPoint(bag, localX, 0);
+        placeCylinder('chrome', rail.x, 0.79, rail.z,
+          0.011, 0.38, 8);
+      }
+      placeBox('chrome', bag.x, 0.98, bag.z,
+        0.22, 0.025, 0.025, bag.rotY);
+      for (const localX of [-0.13, 0.13]) {
+        const wheel = worldPoint(bag, localX, 0.11);
+        placeCylinder('rubber', wheel.x, 0.045, wheel.z,
+          0.045, 0.035, 8, 0, Math.PI / 2);
+      }
+    });
+
+    for (const [x, z] of [[-9.20, 6.80], [5.60, 5.80], [-16.80, -5.60]]) {
+      placeCylinder('blackMatte', x, 0.425, z, 0.24, 0.85, 12);
+      placeCylinder('chrome', x, 0.87, z, 0.255, 0.04, 12);
+      placeCylinder('blackGloss', x, 0.925, z, 0.235, 0.07, 12);
+    }
+  }
 
   buildSeating();
   buildTables();

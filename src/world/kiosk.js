@@ -1,7 +1,7 @@
 /*
- * Kiosk hero asset budget: approximately 40 draw calls / 12.7k triangles.
- * Repeated rails, plates, rods, cabinet bars, cakes, caddy parts and pastries
- * are instanced; the large joinery pieces remain one mesh apiece.
+ * Kiosk hero asset budget: approximately 45 draw calls / 13.1k triangles.
+ * Repeated rails, plates, rods, cabinet bars, cups, cakes, caddy parts and
+ * pastries are instanced; the large joinery pieces remain one mesh apiece.
  */
 import * as THREE from 'three';
 
@@ -204,7 +204,7 @@ export function buildKiosk(ctx) {
     return removeAdjacentDuplicates(result);
   }
 
-  function innerPlanWithRearBay(points, bayX0, bayX1, bayBackZ) {
+  function innerPlanWithRearBay(points, bayX0, bayX1, bayBackZ, bayEastReturn) {
     const rearZ = L.kiosk.outer.z0 + L.kiosk.wall;
     const rearPoints = points
       .map((point, index) => ({ point, index }))
@@ -222,7 +222,7 @@ export function buildKiosk(ctx) {
       west.point.clone(),
       new THREE.Vector2(bayX0, rearZ),
       new THREE.Vector2(bayX0 + bayDepth, bayBackZ),
-      new THREE.Vector2(bayX1 - bayDepth, bayBackZ),
+      new THREE.Vector2(bayX1 - bayEastReturn, bayBackZ),
       new THREE.Vector2(bayX1, rearZ),
       east.point.clone(),
       ...aroundFront,
@@ -365,14 +365,25 @@ export function buildKiosk(ctx) {
   // 1. Oak carcass, raised service face, and recessed toe kick.
   const outerPlan = planPath(0);
   const bayX0 = L.kiosk.outer.x0 + L.kiosk.outer.radius + 0.30;
-  const bayX1 = L.kiosk.outer.x1 - L.kiosk.outer.radius - 0.30;
+  const bayX1 = Math.min(
+    L.back.sink.x + SINK_CUTOUT_WIDTH * 0.5 + 0.03,
+    L.kiosk.outer.x1 - L.kiosk.outer.radius - 0.04,
+  );
   const bayFrontZ = L.kiosk.backSlab.z1;
   const bayBackZ = L.kiosk.outer.z0 + 0.25;
   const bayDepth = bayFrontZ - bayBackZ;
-  const innerPlan = innerPlanWithRearBay(planPath(L.kiosk.wall), bayX0, bayX1, bayBackZ);
+  const bayEastReturn = Math.min(0.06, bayDepth);
+  const innerPlan = innerPlanWithRearBay(
+    planPath(L.kiosk.wall),
+    bayX0,
+    bayX1,
+    bayBackZ,
+    bayEastReturn,
+  );
+  const carcassShape = makeRingShape(outerPlan, innerPlan);
   extrudedMesh(
     'kiosk.carcass',
-    makeRingShape(outerPlan, innerPlan),
+    carcassShape,
     L.kiosk.toeKick.h,
     L.kiosk.backTop - SLAB,
     oakMaterial,
@@ -401,7 +412,7 @@ export function buildKiosk(ctx) {
 
   const bayFloorThickness = 0.025;
   const bayFullDepthX0 = bayX0 + bayDepth;
-  const bayFullDepthX1 = bayX1 - bayDepth;
+  const bayFullDepthX1 = bayX1 - bayEastReturn;
   const bayBackPanelDepth = 0.018;
   const bayBackPanelTop = L.kiosk.backTop - SLAB - 0.012;
   addMesh(
@@ -430,7 +441,7 @@ export function buildKiosk(ctx) {
     ]),
     blackMaterial,
   );
-  // Bay usable volume (current layout): x -4.60..3.40, z -2.35..-1.85, floor y 0.10.
+  // Bay usable volume (current layout): x -4.60..4.10, z -2.35..-1.85, floor y 0.10.
 
   // 2. Front and rear composite worktops with a manufactured bullnose.
   const outerFrontWorktop = slice(-OVERHANG, true);
@@ -826,40 +837,34 @@ export function buildKiosk(ctx) {
   const menuX0 = Math.min(...L.menu.panels.map((panel) => panel.x0));
   const menuX1 = Math.max(...L.menu.panels.map((panel) => panel.x1));
   const menuY0 = Math.min(...L.menu.panels.map((panel) => panel.y0));
-  const menuBulkheadY0 = menuY0 - 0.08;
-  const menuBulkheadDepth = 0.07;
-  const menuBulkhead = addMesh(
-    'kiosk.menu.bulkhead',
-    new THREE.BoxGeometry(
-      menuX1 - menuX0 + 0.20,
-      L.fascia.y0 - menuBulkheadY0,
-      menuBulkheadDepth,
-    ),
-    blackMaterial,
-  );
-  menuBulkhead.position.set(
-    (menuX0 + menuX1) * 0.5,
-    (menuBulkheadY0 + L.fascia.y0) * 0.5,
-    L.menu.z - 0.055,
-  );
+  const menuBorder = 0.030;
+  const menuCassetteDepth = 0.16;
+  const menuTilt = Math.abs(L.menu.tilt);
+  const cassetteBlackParts = [];
+  const cassetteBackParts = [];
+  const cassetteRodMounts = [];
+  const menuCassetteBackMaterial = matWith('oak', {
+    map: oakTexture,
+    roughness: 0.72,
+  });
 
-  const menuBorder = 0.035;
-  const menuBezels = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(1, 1, 1),
-    blackMaterial,
-    L.menu.panels.length,
-  );
-  menuBezels.name = 'kiosk.menu.bezels';
-  menuBezels.castShadow = true;
-  menuBezels.receiveShadow = true;
+  const cassettePart = (geometry, panelPosition, panelRotation, localPosition) => ({
+    geometry,
+    matrix: composeMatrix(
+      localPosition.clone().applyQuaternion(panelRotation).add(panelPosition),
+      panelRotation,
+    ),
+  });
+
   for (let panelIndex = 0; panelIndex < L.menu.panels.length; panelIndex += 1) {
     const panel = L.menu.panels[panelIndex];
     const panelGroup = new THREE.Group();
     panelGroup.name = `kiosk.menu.${panel.id}`;
     // A positive X rotation tips a +Z-facing screen normal down toward the customer.
-    panelGroup.rotation.x = Math.abs(L.menu.tilt);
+    panelGroup.rotation.x = menuTilt;
     // Oversize panels mount proud of the fascia instead of intersecting its band.
-    const panelZ = panel.y1 > L.fascia.y0 ? L.fascia.z + 0.02 : L.menu.z;
+    const mountsProud = panel.y1 > L.fascia.y0;
+    const panelZ = mountsProud ? L.fascia.z + 0.02 : L.menu.z;
     panelGroup.position.set(
       (panel.x0 + panel.x1) * 0.5,
       (panel.y0 + panel.y1) * 0.5,
@@ -869,14 +874,59 @@ export function buildKiosk(ctx) {
     const width = panel.x1 - panel.x0;
     const height = panel.y1 - panel.y0;
     const panelRotation = quaternionFromEuler(panelGroup.rotation.x, 0, 0);
-    const bezelOffset = new THREE.Vector3(0, 0, -0.025).applyQuaternion(panelRotation);
-    setInstance(
-      menuBezels,
-      panelIndex,
-      panelGroup.position.clone().add(bezelOffset),
-      panelRotation,
-      new THREE.Vector3(width + menuBorder * 2, height + menuBorder * 2, 0.05),
+    const cassetteWidth = width + menuBorder * 2;
+    const cassetteHeight = height + menuBorder * 2;
+    const cassetteZ = -menuCassetteDepth * 0.5;
+
+    // Four full-depth edge bars form both the customer-side rim and cassette sides.
+    cassetteBlackParts.push(
+      cassettePart(
+        new THREE.BoxGeometry(cassetteWidth, menuBorder, menuCassetteDepth),
+        panelGroup.position,
+        panelRotation,
+        new THREE.Vector3(0, (height + menuBorder) * 0.5, cassetteZ),
+      ),
+      cassettePart(
+        new THREE.BoxGeometry(cassetteWidth, menuBorder, menuCassetteDepth),
+        panelGroup.position,
+        panelRotation,
+        new THREE.Vector3(0, -(height + menuBorder) * 0.5, cassetteZ),
+      ),
+      cassettePart(
+        new THREE.BoxGeometry(menuBorder, height, menuCassetteDepth),
+        panelGroup.position,
+        panelRotation,
+        new THREE.Vector3((width + menuBorder) * 0.5, 0, cassetteZ),
+      ),
+      cassettePart(
+        new THREE.BoxGeometry(menuBorder, height, menuCassetteDepth),
+        panelGroup.position,
+        panelRotation,
+        new THREE.Vector3(-(width + menuBorder) * 0.5, 0, cassetteZ),
+      ),
     );
+
+    const backRotation = panelRotation.clone().multiply(quaternionFromEuler(0, Math.PI, 0));
+    cassetteBackParts.push({
+      geometry: new THREE.PlaneGeometry(width, height),
+      matrix: composeMatrix(
+        new THREE.Vector3(0, 0, -menuCassetteDepth + 0.001)
+          .applyQuaternion(panelRotation)
+          .add(panelGroup.position),
+        backRotation,
+      ),
+    });
+
+    if (!mountsProud) {
+      for (const localX of [-width * 0.30, width * 0.30]) {
+        const cassetteTop = new THREE.Vector3(
+          localX,
+          cassetteHeight * 0.5,
+          cassetteZ,
+        ).applyQuaternion(panelRotation).add(panelGroup.position);
+        cassetteRodMounts.push(cassetteTop);
+      }
+    }
 
     const screenTexture = texClone(panel.tex, 1, 1);
     if (screenTexture) {
@@ -899,8 +949,151 @@ export function buildKiosk(ctx) {
     panelGroup.add(screen);
     group.add(panelGroup);
   }
-  menuBezels.instanceMatrix.needsUpdate = true;
-  group.add(menuBezels);
+
+  // Merge the order-screen surround and cup-rail hangers into the black shopfitting.
+  const orderScreenWidth = 0.55;
+  const orderScreenHeight = 0.30;
+  const orderScreenBorder = 0.015;
+  const orderScreenDepth = 0.035;
+  const orderScreenX = -1.50;
+  const orderScreenY = 2.05;
+  const orderScreenZ = L.menu.z - 0.195;
+  const orderScreenOuterWidth = orderScreenWidth + orderScreenBorder * 2;
+  const orderScreenOuterHeight = orderScreenHeight + orderScreenBorder * 2;
+  cassetteBlackParts.push(
+    {
+      geometry: new THREE.BoxGeometry(orderScreenOuterWidth, orderScreenBorder, orderScreenDepth),
+      matrix: composeMatrix(new THREE.Vector3(
+        orderScreenX,
+        orderScreenY + (orderScreenHeight + orderScreenBorder) * 0.5,
+        orderScreenZ,
+      )),
+    },
+    {
+      geometry: new THREE.BoxGeometry(orderScreenOuterWidth, orderScreenBorder, orderScreenDepth),
+      matrix: composeMatrix(new THREE.Vector3(
+        orderScreenX,
+        orderScreenY - (orderScreenHeight + orderScreenBorder) * 0.5,
+        orderScreenZ,
+      )),
+    },
+    {
+      geometry: new THREE.BoxGeometry(orderScreenBorder, orderScreenHeight, orderScreenDepth),
+      matrix: composeMatrix(new THREE.Vector3(
+        orderScreenX + (orderScreenWidth + orderScreenBorder) * 0.5,
+        orderScreenY,
+        orderScreenZ,
+      )),
+    },
+    {
+      geometry: new THREE.BoxGeometry(orderScreenBorder, orderScreenHeight, orderScreenDepth),
+      matrix: composeMatrix(new THREE.Vector3(
+        orderScreenX - (orderScreenWidth + orderScreenBorder) * 0.5,
+        orderScreenY,
+        orderScreenZ,
+      )),
+    },
+  );
+
+  const cupRailY = 1.85;
+  const cupRailThickness = 0.025;
+  const cupRailZ = L.menu.z - 0.215;
+  for (const hangerX of [-3.15, -1.65]) {
+    cassetteBlackParts.push({
+      geometry: new THREE.BoxGeometry(0.018, 0.11, 0.05),
+      matrix: composeMatrix(new THREE.Vector3(hangerX, 1.91, cupRailZ + 0.04)),
+    });
+  }
+
+  addMesh(
+    'kiosk.menu.cassettes',
+    mergeGeometryParts(cassetteBlackParts),
+    blackMaterial,
+  );
+  addMesh(
+    'kiosk.menu.cassettes.back',
+    mergeGeometryParts(cassetteBackParts),
+    menuCassetteBackMaterial,
+  );
+
+  const cassetteRods = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.012, 0.012, 1, 8),
+    blackMaterial,
+    cassetteRodMounts.length,
+  );
+  cassetteRods.name = 'kiosk.menu.cassetteRods';
+  cassetteRods.castShadow = true;
+  cassetteRods.receiveShadow = true;
+  for (let i = 0; i < cassetteRodMounts.length; i += 1) {
+    const mount = cassetteRodMounts[i];
+    const rodHeight = L.fascia.y0 - mount.y;
+    setInstance(
+      cassetteRods,
+      i,
+      new THREE.Vector3(mount.x, mount.y + rodHeight * 0.5, mount.z),
+      new THREE.Quaternion(),
+      new THREE.Vector3(1, rodHeight, 1),
+    );
+  }
+  cassetteRods.instanceMatrix.needsUpdate = true;
+  group.add(cassetteRods);
+
+  const orderScreenTexture = texClone('posScreen', 1, 1);
+  if (orderScreenTexture) {
+    orderScreenTexture.wrapS = THREE.ClampToEdgeWrapping;
+    orderScreenTexture.wrapT = THREE.ClampToEdgeWrapping;
+    orderScreenTexture.needsUpdate = true;
+  }
+  const orderScreen = addMesh(
+    'kiosk.menu.orderScreen',
+    new THREE.PlaneGeometry(orderScreenWidth, orderScreenHeight),
+    matWith('screen', {
+      map: orderScreenTexture,
+      emissiveMap: orderScreenTexture,
+      emissive: 0xffffff,
+      emissiveIntensity: 0.85,
+      toneMapped: false,
+    }),
+    { cast: false, receive: false },
+  );
+  orderScreen.position.set(
+    orderScreenX,
+    orderScreenY,
+    orderScreenZ - orderScreenDepth * 0.5 - 0.001,
+  );
+  orderScreen.rotation.y = Math.PI;
+
+  const cupRail = addMesh(
+    'kiosk.menu.cupRail',
+    new THREE.BoxGeometry(2.0, cupRailThickness, 0.16),
+    matWith('steel', { color: 0xa9afb6, roughness: 0.38, metalness: 0.72 }),
+  );
+  cupRail.position.set(-2.40, cupRailY, cupRailZ);
+
+  const cupHeight = 0.105;
+  const cups = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.027, 0.042, cupHeight, 12, 1, true),
+    matWith('paperCup', { color: 0xf6f3ec, roughness: 0.86, metalness: 0 }),
+    8,
+  );
+  cups.name = 'kiosk.menu.cupRail.cups';
+  cups.castShadow = true;
+  cups.receiveShadow = true;
+  for (let i = 0; i < 8; i += 1) {
+    setInstance(
+      cups,
+      i,
+      new THREE.Vector3(
+        THREE.MathUtils.lerp(-3.28, -1.52, i / 7),
+        cupRailY + cupRailThickness * 0.5 + cupHeight * 0.5,
+        cupRailZ,
+      ),
+      new THREE.Quaternion(),
+      new THREE.Vector3(1, 1, 1),
+    );
+  }
+  cups.instanceMatrix.needsUpdate = true;
+  group.add(cups);
 
   const menuSpill = new THREE.PointLight(0xe8f0ff, 9, 5.0, 2);
   menuSpill.name = 'kiosk.menu.lightSpill';

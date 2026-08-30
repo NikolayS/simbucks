@@ -160,18 +160,31 @@ document.getElementById('boot').style.display = 'none';
 
 const clock = new THREE.Clock();
 let acc = 0, frames = 0;
-renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.05);
-  const t = clock.elapsedTime;
+
+function frame(dt, t) {
   guard('player.update', () => player?.update?.(dt));
   guard('hands.update', () => heldHands?.update?.(dt));
   guard('stations.update', () => stationBrain?.update?.(dt));
   guard('state.update', () => gstate.updateState?.(ctx, dt));
   for (const u of updatables) { try { u(dt, t); } catch (e) { report('update', e); } }
+}
+
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  frame(dt, clock.elapsedTime);
   renderer.render(scene, camera);
   acc += dt; frames++;
   if (acc > 1) { ctx.fps = Math.round(frames / acc); acc = 0; frames = 0; }
 });
+
+// Advance the simulation deterministically, independent of requestAnimationFrame.
+// Lets a test drive a whole shift in a throttled or hidden tab.
+let stepT = 0;
+ctx.step = (steps = 1, dt = 1 / 60) => {
+  for (let i = 0; i < steps; i++) { stepT += dt; frame(dt, stepT); }
+  renderer.render(scene, camera);
+  return { steps, simulated: +(steps * dt).toFixed(2) };
+};
 
 console.log('[simbucks] booted', {
   objects: scene.children.length, colliders: colliders.length,
