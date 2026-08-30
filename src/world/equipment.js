@@ -1,5 +1,5 @@
 /*
- * Equipment budget estimate: 40 draw calls, approximately 9k triangles.
+ * Equipment budget estimate: 43 draw calls, approximately 11.7k triangles.
  * Repeated cups, gauges, bottles, pumps, ice, water bottles, caps, and LEDs
  * are instanced; same-finish static machine parts are locally merged.
  */
@@ -224,6 +224,7 @@ export function buildEquipment(ctx) {
   const ledPositions = { green: [], amber: [], red: [] };
   const clearParts = [];
   const blackAccentParts = [];
+  const colliders = [];
   const interactableObjects = {};
   let ledMaterial = null;
   stationAnchors = {};
@@ -682,6 +683,381 @@ export function buildEquipment(ctx) {
     ledPositions.green.push([P.x + 0.052, L.kiosk.backTop + 0.105, P.z + 0.102]);
   }
 
+  // Back-of-house fittings: prep bench, dish sink, cold storage and stock shelving.
+  {
+    const BH = L.kiosk.backHouse ?? L.backHouse;
+    const F = BH.fittings;
+    const bench = F.prepBench;
+    const benchW = bench.x1 - bench.x0;
+    const benchCX = (bench.x0 + bench.x1) * 0.5;
+    const benchTop = BH.benchTop;
+    const interiorZ = BH.outer.z0 + BH.wall;
+    const steelParts = [
+      {
+        geometry: new THREE.BoxGeometry(benchW, 0.04, 0.72),
+        matrix: matrix(benchCX, benchTop + 0.02, bench.z),
+      },
+      {
+        geometry: new THREE.BoxGeometry(benchW, 0.51, 0.03),
+        matrix: matrix(benchCX, benchTop + 0.295, bench.z - 0.345),
+      },
+      {
+        geometry: new THREE.BoxGeometry(benchW - 0.20, 0.03, 0.30),
+        matrix: matrix(benchCX, 0.34, interiorZ + 0.14),
+      },
+    ];
+    for (const x of [
+      benchCX - (benchW * 0.5 - 0.16),
+      benchCX + (benchW * 0.5 - 0.16),
+    ]) {
+      for (const z of [interiorZ + 0.03, interiorZ + 0.25]) {
+        steelParts.push({
+          geometry: new THREE.BoxGeometry(0.04, 0.34, 0.04),
+          matrix: matrix(x, 0.17, z),
+        });
+      }
+    }
+    steelParts.push(
+      {
+        geometry: new THREE.CylinderGeometry(0.14, 0.11, 0.09, 12),
+        matrix: matrix(bench.x0 + BH.wall - 0.10, benchTop + 0.085, bench.z + 0.05),
+      },
+      {
+        geometry: new THREE.CylinderGeometry(0.14, 0.11, 0.09, 12),
+        matrix: matrix(bench.x1 - BH.wall, benchTop + 0.085, bench.z + 0.05),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.04, 0.66, 0.04),
+        matrix: matrix(benchCX - 1.15, 1.32, bench.z - 0.30),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.04, 0.66, 0.04),
+        matrix: matrix(benchCX + 1.15, 1.32, bench.z - 0.30),
+      },
+      {
+        geometry: new THREE.BoxGeometry(2.50, 0.03, 0.30),
+        matrix: matrix(benchCX, 1.665, bench.z - 0.30),
+      },
+    );
+
+    const sinkX = BH.outer.x0 + BH.wall - 0.20;
+    const sinkZ = F.dishSink.z;
+    steelParts.push(
+      {
+        geometry: new THREE.BoxGeometry(0.40, 0.28, 0.02),
+        matrix: matrix(sinkX, benchTop + 0.14, sinkZ - 0.24),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.40, 0.28, 0.02),
+        matrix: matrix(sinkX, benchTop + 0.14, sinkZ + 0.24),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.02, 0.28, 0.46),
+        matrix: matrix(sinkX - 0.19, benchTop + 0.14, sinkZ),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.02, 0.28, 0.46),
+        matrix: matrix(sinkX + 0.19, benchTop + 0.14, sinkZ),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.36, 0.02, 0.46),
+        matrix: matrix(sinkX, benchTop + 0.01, sinkZ),
+      },
+      {
+        geometry: tube([
+          [sinkX - 0.22, benchTop + 0.28, sinkZ],
+          [sinkX - 0.22, benchTop + 0.65, sinkZ],
+          [sinkX - 0.18, benchTop + 0.73, sinkZ],
+          [sinkX - 0.06, benchTop + 0.75, sinkZ],
+          [sinkX, benchTop + 0.65, sinkZ],
+          [sinkX, benchTop + 0.49, sinkZ],
+        ], 0.013, 24),
+        matrix: matrix(),
+      },
+      {
+        geometry: new THREE.CylinderGeometry(0.012, 0.012, 0.12, 8),
+        matrix: matrix(sinkX - 0.28, benchTop + 0.31, sinkZ, 0, 0, Math.PI / 2),
+      },
+    );
+
+    const shelf = F.shelving;
+    const shelfZ = interiorZ + 0.20;
+    const shelfCX = (shelf.x0 + shelf.x1) * 0.5;
+    const shelfW = shelf.x1 - shelf.x0;
+    for (const x of [shelf.x0 + 0.03, shelf.x1 - 0.03]) {
+      for (const z of [shelfZ - 0.16, shelfZ + 0.16]) {
+        steelParts.push({
+          geometry: new THREE.CylinderGeometry(0.018, 0.018, 1.78, 8),
+          matrix: matrix(x, 0.89, z),
+        });
+      }
+    }
+    for (const tier of shelf.tiers) {
+      steelParts.push(
+        {
+          geometry: new THREE.BoxGeometry(shelfW, 0.014, 0.40),
+          matrix: matrix(shelfCX, tier, shelfZ),
+        },
+        {
+          geometry: new THREE.CylinderGeometry(0.010, 0.010, shelfW, 6),
+          matrix: matrix(shelfCX, tier + 0.03, shelfZ + 0.19, 0, 0, Math.PI / 2),
+        },
+      );
+    }
+
+    // layout puts the fridge hard against the block's front band, which seals its glazed face
+    // 50 mm from a wall. Stand it against the EAST band instead, far enough back that the door
+    // and the lit interior read from over the screen wall.
+    const fridgeX = BH.outer.x1 - BH.wall - 0.36;      // -0.46: flush with the east band
+    const fridgeZ = BH.outer.z1 - BH.wall - 0.85;      // -4.75: 0.50 clear of the front band
+    blackAccentParts.push(
+      {
+        geometry: new THREE.BoxGeometry(0.72, 1.95, 0.05),
+        matrix: matrix(fridgeX, 0.975, fridgeZ - 0.325),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.05, 1.95, 0.70),
+        matrix: matrix(fridgeX - 0.335, 0.975, fridgeZ),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.05, 1.95, 0.70),
+        matrix: matrix(fridgeX + 0.335, 0.975, fridgeZ),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.72, 0.06, 0.70),
+        matrix: matrix(fridgeX, 1.92, fridgeZ),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.72, 0.14, 0.70),
+        matrix: matrix(fridgeX, 0.07, fridgeZ),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.72, 0.16, 0.06),
+        matrix: matrix(fridgeX, 0.22, fridgeZ + 0.32),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.72, 0.16, 0.06),
+        matrix: matrix(fridgeX, 1.81, fridgeZ + 0.32),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.07, 1.45, 0.06),
+        matrix: matrix(fridgeX - 0.325, 1.015, fridgeZ + 0.32),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.07, 1.45, 0.06),
+        matrix: matrix(fridgeX + 0.325, 1.015, fridgeZ + 0.32),
+      },
+    );
+    for (const y of [0.62, 1.02, 1.42]) {
+      blackAccentParts.push({
+        geometry: new THREE.BoxGeometry(0.60, 0.02, 0.56),
+        matrix: matrix(fridgeX, y, fridgeZ),
+      });
+    }
+    clearParts.push({
+      geometry: new THREE.BoxGeometry(0.60, 1.44, 0.02),
+      matrix: matrix(fridgeX, 1.015, fridgeZ + 0.345),
+    });
+    steelParts.push(
+      {
+        geometry: new THREE.CylinderGeometry(0.016, 0.016, 1.10, 8),
+        matrix: matrix(fridgeX + 0.26, 1.05, fridgeZ + 0.39),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.03, 0.03, 0.05),
+        matrix: matrix(fridgeX + 0.26, 0.53, fridgeZ + 0.372),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.03, 0.03, 0.05),
+        matrix: matrix(fridgeX + 0.26, 1.57, fridgeZ + 0.372),
+      },
+    );
+    addMesh(
+      group,
+      'equip.backHouse.stainless',
+      mergeGeometry(steelParts),
+      materials.steel,
+      true,
+      true,
+    );
+
+    const fridgeGlow = matWith('blackMatte', {
+      color: 0x0E1A18,
+      emissive: 0x63C8A6,
+      emissiveIntensity: 0.55,
+      toneMapped: false,
+    });
+    const fridgeGlowMesh = addMesh(
+      group,
+      'equip.backHouse.fridgeGlow',
+      new THREE.BoxGeometry(0.60, 1.40, 0.02),
+      fridgeGlow,
+      false,
+      false,
+    );
+    fridgeGlowMesh.position.set(fridgeX, 1.015, fridgeZ - 0.28);
+
+    const bottleProfile = [
+      new THREE.Vector2(0.10, 0),
+      new THREE.Vector2(0.14, 0.045),
+      new THREE.Vector2(0.145, 0.37),
+      new THREE.Vector2(0.12, 0.48),
+      new THREE.Vector2(0.055, 0.54),
+      new THREE.Vector2(0.045, 0.61),
+    ];
+    const waterMaterial = matWith('glass', {
+      color: 0x3176b5,
+      transparent: true,
+      opacity: 0.5,
+      roughness: 0.18,
+    });
+    const waterBottles = new THREE.InstancedMesh(
+      new THREE.LatheGeometry(bottleProfile, 12),
+      waterMaterial,
+      2,
+    );
+    waterBottles.name = 'equip.backHouse.waterBottles';
+    const capGeometry = new THREE.CylinderGeometry(0.047, 0.047, 0.035, 12);
+    const caps = new THREE.InstancedMesh(capGeometry, materials.white, 2);
+    caps.name = 'equip.backHouse.waterCaps';
+    const waterDummy = new THREE.Object3D();
+    const waterXs = [F.waterJugs.x - 0.17, F.waterJugs.x + 0.17];
+    for (let i = 0; i < waterXs.length; i += 1) {
+      waterDummy.position.set(waterXs[i], 0, F.waterJugs.z);
+      waterDummy.rotation.set(0, (rng() - 0.5) * 0.14, 0);
+      waterDummy.scale.set(1, 1, 1);
+      waterDummy.updateMatrix();
+      waterBottles.setMatrixAt(i, waterDummy.matrix);
+      waterDummy.position.y = 0.627;
+      waterDummy.updateMatrix();
+      caps.setMatrixAt(i, waterDummy.matrix);
+    }
+    finishInstances(waterBottles, true, true);
+    finishInstances(caps, true, false);
+    group.add(waterBottles, caps);
+
+    const stockItems = [];
+    for (let i = 0; i < 5; i += 1) {
+      stockItems.push({
+        x: shelf.x0 + 0.22 + i * 0.46,
+        y: shelf.tiers[0] + 0.007 + 0.13,
+        z: shelfZ,
+        sx: 0.34,
+        sy: 0.26,
+        sz: 0.30,
+        rotY: (rng() - 0.5) * 0.10,
+        color: 0x8A6A42,
+      });
+    }
+    for (let i = 0; i < 8; i += 1) {
+      stockItems.push({
+        x: shelf.x0 + 0.16 + i * 0.30,
+        y: shelf.tiers[1] + 0.007 + 0.085,
+        z: shelfZ,
+        sx: 0.22,
+        sy: 0.17,
+        sz: 0.28,
+        rotY: (rng() - 0.5) * 0.10,
+        color: 0xB08D57,
+      });
+    }
+    for (let i = 0; i < 6; i += 1) {
+      stockItems.push({
+        x: shelf.x0 + 0.20 + i * 0.40,
+        y: shelf.tiers[2] + 0.007 + 0.095,
+        z: shelfZ,
+        sx: 0.28,
+        sy: 0.19,
+        sz: 0.30,
+        rotY: (rng() - 0.5) * 0.10,
+        color: 0xD8D6D0,
+      });
+    }
+    const wallShelfColors = [0xB08D57, 0xD8D6D0, 0x8A6A42];
+    for (let i = 0; i < 5; i += 1) {
+      stockItems.push({
+        x: bench.x0 + 0.35 + i * 0.55,
+        y: 1.79,
+        z: bench.z - 0.30,
+        sx: 0.30,
+        sy: 0.22,
+        sz: 0.26,
+        rotY: (rng() - 0.5) * 0.08,
+        color: wallShelfColors[i % wallShelfColors.length],
+      });
+    }
+    const crates = F.crateStack;
+    const crateColors = [0x8E9298, 0x969AA0, 0x868A90];
+    for (let k = 0; k < 3; k += 1) {
+      const crateX = crates.x + (rng() - 0.5) * 0.05;
+      const crateY = 0.21 + k * 0.43;
+      const crateZ = crates.z + (rng() - 0.5) * 0.05;
+      const crateRotY = (rng() - 0.5) * 0.14;
+      stockItems.push({
+        x: crateX,
+        y: crateY,
+        z: crateZ,
+        sx: 0.60,
+        sy: 0.42,
+        sz: 0.44,
+        rotY: crateRotY,
+        color: crateColors[k],
+      });
+      stockItems.push({
+        x: crateX,
+        y: crateY + 0.225,
+        z: crateZ,
+        sx: 0.62,
+        sy: 0.03,
+        sz: 0.46,
+        rotY: crateRotY,
+        color: 0x2A2E33,
+      });
+    }
+    const stockMaterial = matWith('cardboard', { color: 0xffffff, roughness: 0.92 });
+    const stock = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      stockMaterial,
+      stockItems.length,
+    );
+    stock.name = 'equip.backHouse.stock';
+    const stockDummy = new THREE.Object3D();
+    for (let i = 0; i < stockItems.length; i += 1) {
+      const item = stockItems[i];
+      stockDummy.position.set(item.x, item.y, item.z);
+      stockDummy.rotation.set(0, item.rotY, 0);
+      stockDummy.scale.set(item.sx, item.sy, item.sz);
+      stockDummy.updateMatrix();
+      stock.setMatrixAt(i, stockDummy.matrix);
+      stock.setColorAt(i, new THREE.Color(item.color));
+    }
+    finishInstances(stock, true, false);
+    group.add(stock);
+
+    colliders.push(
+      new THREE.Box3(
+        new THREE.Vector3(shelf.x0, 0, shelfZ - 0.22),
+        new THREE.Vector3(shelf.x1, 1.78, shelfZ + 0.22),
+      ),
+      new THREE.Box3(
+        new THREE.Vector3(bench.x0, 0, interiorZ - 0.02),
+        new THREE.Vector3(bench.x1, 0.40, interiorZ + 0.30),
+      ),
+      new THREE.Box3(
+        new THREE.Vector3(fridgeX - 0.36, 0, fridgeZ - 0.35),
+        new THREE.Vector3(fridgeX + 0.36, 1.95, fridgeZ + 0.40),
+      ),
+      new THREE.Box3(
+        new THREE.Vector3(crates.x - 0.34, 0, crates.z - 0.26),
+        new THREE.Vector3(crates.x + 0.34, 1.30, crates.z + 0.26),
+      ),
+      new THREE.Box3(
+        new THREE.Vector3(F.waterJugs.x - 0.34, 0, F.waterJugs.z - 0.17),
+        new THREE.Vector3(F.waterJugs.x + 0.34, 0.70, F.waterJugs.z + 0.17),
+      ),
+    );
+  }
+
   addMesh(group, 'equip.clearHoppersAndJugs', mergeGeometry(clearParts), materials.glass, true, false);
   addMesh(group, 'equip.blackMachineAccents', mergeGeometry(blackAccentParts), materials.black, true, false);
 
@@ -927,41 +1303,6 @@ export function buildEquipment(ctx) {
     const floorY = UNDER_COUNTER_BAY_FLOOR_Y;
     const bayHeight = UNDER_COUNTER_BAY_OPENING_TOP_Y - floorY;
 
-    const bottleProfile = [
-      new THREE.Vector2(0.10, 0),
-      new THREE.Vector2(0.14, 0.045),
-      new THREE.Vector2(0.145, 0.37),
-      new THREE.Vector2(0.12, 0.48),
-      new THREE.Vector2(0.055, 0.54),
-      new THREE.Vector2(0.045, 0.61),
-    ];
-    const waterMaterial = matWith('glass', {
-      color: 0x3176b5,
-      transparent: true,
-      opacity: 0.5,
-      roughness: 0.18,
-    });
-    const waterBottles = new THREE.InstancedMesh(new THREE.LatheGeometry(bottleProfile, 12), waterMaterial, 2);
-    waterBottles.name = 'equip.underCounter.waterBottles';
-    const capGeometry = new THREE.CylinderGeometry(0.047, 0.047, 0.035, 12);
-    const caps = new THREE.InstancedMesh(capGeometry, materials.white, 2);
-    caps.name = 'equip.underCounter.waterCaps';
-    const dummy = new THREE.Object3D();
-    const waterXs = [UNDER_COUNTER_BAY_X0 + 0.25, UNDER_COUNTER_BAY_X0 + 0.65];
-    for (let i = 0; i < waterXs.length; i += 1) {
-      dummy.position.set(waterXs[i], floorY, z);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      waterBottles.setMatrixAt(i, dummy.matrix);
-      dummy.position.y = floorY + 0.627;
-      dummy.updateMatrix();
-      caps.setMatrixAt(i, dummy.matrix);
-    }
-    finishInstances(waterBottles, true, true);
-    finishInstances(caps, true, false);
-    dressing.add(waterBottles, caps);
-
     const shelfX = UNDER_COUNTER_BAY_X0 + 1.65;
     const shelfParts = [
       { geometry: new THREE.BoxGeometry(0.78, 0.035, 0.30), matrix: matrix(shelfX, floorY + 0.14, z) },
@@ -1058,5 +1399,5 @@ export function buildEquipment(ctx) {
     for (const texture of ownedTextures) texture.dispose();
   }
 
-  return { group, colliders: [], interactables, update, dispose };
+  return { group, colliders, interactables, update, dispose };
 }

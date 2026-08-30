@@ -1,5 +1,5 @@
 /*
- * Kiosk hero asset budget: approximately 45 draw calls / 13.1k triangles.
+ * Kiosk hero asset budget: approximately 46 draw calls / 16.8k triangles.
  * Repeated rails, plates, rods, cabinet bars, cups, cakes, caddy parts and
  * pastries are instanced; the large joinery pieces remain one mesh apiece.
  */
@@ -139,6 +139,69 @@ export function buildKiosk(ctx) {
     return points;
   }
 
+  // Rounded-rectangle plan for the back-of-house block. Same construction as planPath(), but
+  // driven by BH.outer / BH.radius. Traversal starts at the rear midpoint and runs east ->
+  // front -> west -> rear, keeping the front run contiguous in the middle of the array.
+  function backHousePlan(inset, segsPerCorner = PLAN_SEGMENTS) {
+    const x0 = BH.outer.x0 + inset;
+    const x1 = BH.outer.x1 - inset;
+    const z0 = BH.outer.z0 + inset;
+    const z1 = BH.outer.z1 - inset;
+    const radius = Math.max(0.02, BH.radius - inset);
+    const points = [];
+
+    const push = (x, z) => {
+      const previous = points[points.length - 1];
+      if (!previous || Math.abs(previous.x - x) > 1e-7 || Math.abs(previous.y - z) > 1e-7) {
+        points.push(new THREE.Vector2(x, z));
+      }
+    };
+    const arc = (cx, cz, a0, a1) => {
+      for (let i = 1; i <= segsPerCorner; i += 1) {
+        const a = THREE.MathUtils.lerp(a0, a1, i / segsPerCorner);
+        push(cx + Math.cos(a) * radius, cz + Math.sin(a) * radius);
+      }
+    };
+
+    // Closed implicitly: rear midpoint -> east -> front -> west -> rear.
+    push((x0 + x1) * 0.5, z0);
+    push(x1 - radius, z0);
+    arc(x1 - radius, z0 + radius, -Math.PI * 0.5, 0);
+    push(x1, z1 - radius);
+    arc(x1 - radius, z1 - radius, 0, Math.PI * 0.5);
+    push(x0 + radius, z1);
+    arc(x0 + radius, z1 - radius, Math.PI * 0.5, Math.PI);
+    push(x0, z0 + radius);
+    arc(x0 + radius, z0 + radius, Math.PI, Math.PI * 1.5);
+    return points;
+  }
+
+  // The front run plus both front corners of the block, as one contiguous open path. The
+  // corner tangent line z = BH.outer.z1 - BH.radius is inset-invariant (an inset shrinks the
+  // rectangle and the corner radius by the same amount), so one split value serves every inset.
+  function backHouseFrontRun(inset) {
+    const zSplit = BH.outer.z1 - BH.radius;
+    return backHousePlan(inset).filter((p) => p.y >= zSplit - 1e-6).map((p) => p.clone());
+  }
+
+  // Band between two back-house insets, with the public-facing doorway walked through.
+  function backHouseBand(outerInset, innerInset) {
+    return makeBandShape(
+      openLoopAtGap(
+        backHousePlan(outerInset),
+        BH.outer.z1 - outerInset,
+        BH.doorway.x0,
+        BH.doorway.x1,
+      ),
+      openLoopAtGap(
+        backHousePlan(innerInset),
+        BH.outer.z1 - innerInset,
+        BH.doorway.x0,
+        BH.doorway.x1,
+      ),
+    );
+  }
+
   function pathLengths(points, closed = true) {
     const cumulative = new Float32Array(points.length + 1);
     for (let i = 1; i < points.length; i += 1) {
@@ -149,16 +212,15 @@ export function buildKiosk(ctx) {
     return { cumulative, total: cumulative[points.length] };
   }
 
-  function outwardNormal(points, index, closed = true) {
+  function outwardNormal(points, index, closed = true, centre = new THREE.Vector2(
+    (L.kiosk.outer.x0 + L.kiosk.outer.x1) * 0.5,
+    (L.kiosk.outer.z0 + L.kiosk.outer.z1) * 0.5,
+  )) {
     const count = points.length;
     const previous = index > 0 ? points[index - 1] : (closed ? points[count - 1] : points[index]);
     const next = index < count - 1 ? points[index + 1] : (closed ? points[0] : points[index]);
     const tangent = next.clone().sub(previous).normalize();
     const normal = new THREE.Vector2(tangent.y, -tangent.x).normalize();
-    const centre = new THREE.Vector2(
-      (L.kiosk.outer.x0 + L.kiosk.outer.x1) * 0.5,
-      (L.kiosk.outer.z0 + L.kiosk.outer.z1) * 0.5,
-    );
     if (normal.dot(points[index].clone().sub(centre)) < 0) normal.multiplyScalar(-1);
     return normal;
   }
@@ -257,7 +319,7 @@ export function buildKiosk(ctx) {
 
   function openLoopAtGap(points, z, gapX0, gapX1) {
     const edge = findGapEdge(points, z, gapX0, gapX1);
-    if (edge < 0) return points.slice();
+    if (edge < 0) return points.slice();          // fail safe: no gap, closed ring as before
     const a = points[edge];
     const b = points[(edge + 1) % points.length];
     // walking a -> b, which gap post do we meet first?
@@ -288,6 +350,17 @@ export function buildKiosk(ctx) {
       if (!inside(p)) {
         if (i > 0 && inside(points[i - 1])) {
           current = [crossAt(points[i - 1], p, p.x <= gapX0 ? gapX0 : gapX1)];
+        } else if (i > 0) {
+          const previous = points[i - 1];
+          const crossesGap = (previous.x <= gapX0 && p.x >= gapX1)
+            || (previous.x >= gapX1 && p.x <= gapX0);
+          if (crossesGap) {
+            const first = p.x > previous.x ? gapX0 : gapX1;
+            const second = p.x > previous.x ? gapX1 : gapX0;
+            current.push(crossAt(previous, p, first));
+            runs.push(removeAdjacentDuplicates(current));
+            current = [crossAt(previous, p, second)];
+          }
         }
         current.push(p.clone());
       } else if (i > 0 && !inside(points[i - 1])) {
@@ -444,6 +517,7 @@ export function buildKiosk(ctx) {
     bayBackZ,
     bayEastReturn,
   );
+  // 1a. Back-of-house joinery shares the existing carcass, toe-kick, and worktop meshes.
   const carcassShape = makeBandShape(
     openLoopAtGap(outerPlan, L.kiosk.outer.z0, BH.doorway.x0, BH.doorway.x1),
     openLoopAtGap(
@@ -455,7 +529,7 @@ export function buildKiosk(ctx) {
   );
   extrudedMesh(
     'kiosk.carcass',
-    carcassShape,
+    [carcassShape, backHouseBand(0, BH.wall)],
     L.kiosk.toeKick.h,
     L.kiosk.backTop - SLAB,
     oakMaterial,
@@ -473,20 +547,26 @@ export function buildKiosk(ctx) {
 
   extrudedMesh(
     'kiosk.toeKick',
-    makeBandShape(
-      openLoopAtGap(
-        planPath(L.kiosk.toeKick.inset),
-        L.kiosk.outer.z0 + L.kiosk.toeKick.inset,
-        BH.doorway.x0,
-        BH.doorway.x1,
+    [
+      makeBandShape(
+        openLoopAtGap(
+          planPath(L.kiosk.toeKick.inset),
+          L.kiosk.outer.z0 + L.kiosk.toeKick.inset,
+          BH.doorway.x0,
+          BH.doorway.x1,
+        ),
+        openLoopAtGap(
+          planPath(L.kiosk.wall + L.kiosk.toeKick.inset),
+          L.kiosk.outer.z0 + L.kiosk.wall + L.kiosk.toeKick.inset,
+          BH.doorway.x0,
+          BH.doorway.x1,
+        ),
       ),
-      openLoopAtGap(
-        planPath(L.kiosk.wall + L.kiosk.toeKick.inset),
-        L.kiosk.outer.z0 + L.kiosk.wall + L.kiosk.toeKick.inset,
-        BH.doorway.x0,
-        BH.doorway.x1,
+      backHouseBand(
+        L.kiosk.toeKick.inset,
+        BH.wall + L.kiosk.toeKick.inset,
       ),
-    ),
+    ],
     0,
     L.kiosk.toeKick.h,
     blackMaterial,
@@ -564,6 +644,8 @@ export function buildKiosk(ctx) {
       addRectangularHole(rearWorktopShapes[runIndex], centreX, centreZ, width, depth);
     }
   }
+  // BH.benchTop === L.kiosk.backTop, so this island shares the rear worktop extrusion.
+  rearWorktopShapes.push(backHouseBand(-OVERHANG, BH.wall + OVERHANG));
   // Both holes stay inside the rear band without touching an edge. In particular,
   // the sink spans x 3.67..4.13 before the straight rear run ends at x 4.20.
   extrudedMesh(
@@ -572,6 +654,28 @@ export function buildKiosk(ctx) {
     L.kiosk.backTop - SLAB,
     L.kiosk.backTop,
     worktopMaterial,
+  );
+
+  const screenThickness = 0.09;
+  const outerScreenRuns = splitRunAtGap(
+    backHouseFrontRun(0),
+    BH.doorway.x0,
+    BH.doorway.x1,
+  );
+  const innerScreenRuns = splitRunAtGap(
+    backHouseFrontRun(screenThickness),
+    BH.doorway.x0,
+    BH.doorway.x1,
+  );
+  const screenWallShapes = outerScreenRuns.map((outerRun, index) => (
+    makeBandShape(outerRun, innerScreenRuns[index])
+  ));
+  extrudedMesh(
+    'kiosk.backHouse.screenWall',
+    screenWallShapes,
+    L.kiosk.backTop,
+    BH.screenWall,
+    oakMaterial,
   );
 
   const bullnoseRadius = 0.020;
@@ -642,37 +746,76 @@ export function buildKiosk(ctx) {
     worktopMaterial,
   );
 
-  // 3. Signature mural ribbon around the west nose.
+  // 3. Signature mural ribbon around the west nose and back-house west elevation.
+  function appendMuralRibbon(points, bottom, top, centre, arrays) {
+    const { cumulative, total } = pathLengths(points, false);
+    const length = total || 1;
+    const height = top - bottom;
+    // Square tiles keep the leaves at their drawn proportions, roughly 40 cm in world scale.
+    const tiles = Math.max(1, Math.round(total / height));
+    const indexBase = arrays.positions.length / 3;
+    for (let i = 0; i < points.length; i += 1) {
+      const normal = outwardNormal(points, i, false, centre);
+      const x = points[i].x + normal.x * 0.006;
+      const z = points[i].y + normal.y * 0.006;
+      arrays.positions.push(x, bottom, z, x, top, z);
+      arrays.normals.push(normal.x, 0, normal.y, normal.x, 0, normal.y);
+      const u = (cumulative[i] / length) * tiles;
+      arrays.uvs.push(u, 0, u, 1);
+      if (i < points.length - 1) {
+        const pointBottom = indexBase + i * 2;
+        const pointTop = pointBottom + 1;
+        const nextBottom = pointBottom + 2;
+        const nextTop = pointBottom + 3;
+        arrays.indices.push(
+          pointBottom,
+          pointTop,
+          nextBottom,
+          nextBottom,
+          pointTop,
+          nextTop,
+        );
+      }
+    }
+  }
+
   const muralSource = planPath(0);
   const muralLimit = L.kiosk.outer.x0 + L.kiosk.outer.radius;
   const muralPoints = muralSource.filter((point) => point.x <= muralLimit + 1e-6);
   const muralBottom = L.kiosk.toeKick.h;
   const muralTop = L.kiosk.counterTop - SLAB;
-  const muralHeight = muralTop - muralBottom;
   const muralPositions = [];
   const muralNormals = [];
   const muralUvs = [];
   const muralIndices = [];
-  const { cumulative: muralLengths, total: totalMuralLength } = pathLengths(muralPoints, false);
-  const muralLength = totalMuralLength || 1;
-  // About six square tiles keep the leaves at their drawn proportions, roughly 40 cm in world scale.
-  const muralTiles = Math.max(1, Math.round(totalMuralLength / muralHeight));
-  for (let i = 0; i < muralPoints.length; i += 1) {
-    const normal = outwardNormal(muralPoints, i, false);
-    const x = muralPoints[i].x + normal.x * 0.006;
-    const z = muralPoints[i].y + normal.y * 0.006;
-    muralPositions.push(x, muralBottom, z, x, muralTop, z);
-    muralNormals.push(normal.x, 0, normal.y, normal.x, 0, normal.y);
-    const u = (muralLengths[i] / muralLength) * muralTiles;
-    muralUvs.push(u, 0, u, 1);
-    if (i < muralPoints.length - 1) {
-      const bottom = i * 2;
-      const top = bottom + 1;
-      const nextBottom = bottom + 2;
-      const nextTop = bottom + 3;
-      muralIndices.push(bottom, top, nextBottom, nextBottom, top, nextTop);
-    }
-  }
+  const muralArrays = {
+    positions: muralPositions,
+    normals: muralNormals,
+    uvs: muralUvs,
+    indices: muralIndices,
+  };
+  appendMuralRibbon(
+    muralPoints,
+    muralBottom,
+    muralTop,
+    new THREE.Vector2(
+      (L.kiosk.outer.x0 + L.kiosk.outer.x1) * 0.5,
+      (L.kiosk.outer.z0 + L.kiosk.outer.z1) * 0.5,
+    ),
+    muralArrays,
+  );
+  const bhMuralPoints = backHousePlan(0)
+    .filter((p) => p.x <= BH.outer.x0 + BH.radius + 1e-6);
+  appendMuralRibbon(
+    bhMuralPoints,
+    L.kiosk.toeKick.h,
+    BH.benchTop - SLAB,
+    new THREE.Vector2(
+      (BH.outer.x0 + BH.outer.x1) * 0.5,
+      (BH.outer.z0 + BH.outer.z1) * 0.5,
+    ),
+    muralArrays,
+  );
   const muralGeometry = new THREE.BufferGeometry();
   muralGeometry.setAttribute('position', new THREE.Float32BufferAttribute(muralPositions, 3));
   muralGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(muralNormals, 3));
@@ -1652,9 +1795,10 @@ export function buildKiosk(ctx) {
     return geometry;
   }
 
-  // 9. Five world-space ring colliders; none enters the inner aisle or doorway.
+  // 9. Ten world-space joinery colliders; none enters an inner aisle or doorway.
   const colliderY0 = 0;
   const colliderY1 = L.kiosk.counterTop;
+  const bhTop = BH.screenWall;
   const colliders = [
     new THREE.Box3(
       new THREE.Vector3(L.kiosk.outer.x0, colliderY0, L.kiosk.aisle.z1),
@@ -1675,6 +1819,26 @@ export function buildKiosk(ctx) {
     new THREE.Box3(
       new THREE.Vector3(L.kiosk.aisle.x1, colliderY0, L.kiosk.outer.z0),
       new THREE.Vector3(L.kiosk.outer.x1, colliderY1, L.kiosk.outer.z1),
+    ),
+    new THREE.Box3(
+      new THREE.Vector3(BH.outer.x0, colliderY0, BH.outer.z1 - BH.wall),
+      new THREE.Vector3(BH.doorway.x0, bhTop, BH.outer.z1),
+    ),
+    new THREE.Box3(
+      new THREE.Vector3(BH.doorway.x1, colliderY0, BH.outer.z1 - BH.wall),
+      new THREE.Vector3(BH.outer.x1, bhTop, BH.outer.z1),
+    ),
+    new THREE.Box3(
+      new THREE.Vector3(BH.outer.x0, colliderY0, BH.outer.z0),
+      new THREE.Vector3(BH.outer.x0 + BH.wall, BH.benchTop, BH.outer.z1),
+    ),
+    new THREE.Box3(
+      new THREE.Vector3(BH.outer.x1 - BH.wall, colliderY0, BH.outer.z0),
+      new THREE.Vector3(BH.outer.x1, BH.benchTop, BH.outer.z1),
+    ),
+    new THREE.Box3(
+      new THREE.Vector3(BH.outer.x0, colliderY0, BH.outer.z0),
+      new THREE.Vector3(BH.outer.x1, BH.benchTop, BH.outer.z0 + BH.wall),
     ),
   ];
 
