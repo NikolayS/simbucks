@@ -3,14 +3,17 @@ import * as THREE from 'three';
 const CONFIG = {
   // Pointer look.
   lookSensitivity: 0.0022,
+  touchLookSensitivity: 0.0042,
   maxPitch: 1.4835,
   maxMouseDelta: 120,
+  maxTouchLookDelta: 220,
   spawnYaw: Math.PI,
 
   // Ground movement.
   acceleration: 26,
   friction: 11,
   shuffleMultiplier: 1.32,
+  stickDeadzone: 0.02,
   stopEpsilon: 0.002,
   maxFrameDelta: 0.05,
 
@@ -114,6 +117,17 @@ export function createPlayer(ctx, colliders) {
   let windowBlurred = false;
   let documentHidden = typeof document !== 'undefined' && document.hidden;
   let disposed = false;
+  let touchMode = false;
+  let lastPointerWasTouch = false;
+  let busInputSeen = false;
+  let stickX = 0;
+  let stickY = 0;
+  let fallbackTouchId = null;
+  let fallbackTouchX = 0;
+  let fallbackTouchY = 0;
+
+  touchMode = (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)
+    || (typeof window !== 'undefined' && 'ontouchstart' in window);
 
   let pressActive = false;
   let pressId = null;
@@ -129,13 +143,43 @@ export function createPlayer(ctx, colliders) {
   let lastSentPrompt = null;
   let lastPromptFunction = null;
   let unsubscribeTeleport = null;
+  let unsubscribeMove = null;
+  let unsubscribeLook = null;
+  let unsubscribeAction = null;
 
   raycaster.near = CONFIG.rayNear;
   raycaster.far = CONFIG.rayFar;
   camera.rotation.order = 'YXZ';
 
-  function inputIsActive() {
+  function deviceInputActive() {
     return pointerLocked && !windowBlurred && !documentHidden && !disposed;
+  }
+
+  function touchInputActive() {
+    return touchMode && !documentHidden && !disposed;
+  }
+
+  function inputIsActive() {
+    return deviceInputActive() || touchInputActive();
+  }
+
+  function applyLook(dx, dy) {
+    dx = clamp(
+      Number.isFinite(dx) ? dx : 0,
+      -CONFIG.maxTouchLookDelta,
+      CONFIG.maxTouchLookDelta,
+    );
+    dy = clamp(
+      Number.isFinite(dy) ? dy : 0,
+      -CONFIG.maxTouchLookDelta,
+      CONFIG.maxTouchLookDelta,
+    );
+    yaw -= dx * CONFIG.touchLookSensitivity;
+    pitch = clamp(
+      pitch - dy * CONFIG.touchLookSensitivity,
+      -CONFIG.maxPitch,
+      CONFIG.maxPitch,
+    );
   }
 
   function emitTap(id, duration) {
@@ -192,6 +236,8 @@ export function createPlayer(ctx, colliders) {
     clearMovementKeys();
     keyE = false;
     mouseLeft = false;
+    stickX = 0;
+    stickY = 0;
     wasMovingFast = false;
     finishPress(interrupted);
   }
@@ -409,7 +455,7 @@ export function createPlayer(ctx, colliders) {
   }
 
   function onCanvasClick() {
-    if (!canvas || document.pointerLockElement === canvas) return;
+    if (lastPointerWasTouch || !canvas || document.pointerLockElement === canvas) return;
     try {
       const request = canvas.requestPointerLock?.();
       if (request && typeof request.then === 'function') request.catch(() => {});
@@ -432,7 +478,7 @@ export function createPlayer(ctx, colliders) {
   }
 
   function onMouseMove(event) {
-    if (!inputIsActive()) return;
+    if (!deviceInputActive()) return;
     const moveX = clamp(event.movementX || 0, -CONFIG.maxMouseDelta, CONFIG.maxMouseDelta);
     const moveY = clamp(event.movementY || 0, -CONFIG.maxMouseDelta, CONFIG.maxMouseDelta);
     yaw -= moveX * CONFIG.lookSensitivity;
@@ -440,17 +486,17 @@ export function createPlayer(ctx, colliders) {
   }
 
   function onMouseDown(event) {
-    if (!inputIsActive() || event.button !== 0) return;
+    if (!deviceInputActive() || event.button !== 0) return;
     setActionKey(true, true);
   }
 
   function onMouseUp(event) {
-    if (!inputIsActive() || event.button !== 0) return;
+    if (!deviceInputActive() || event.button !== 0) return;
     setActionKey(true, false);
   }
 
   function onKeyDown(event) {
-    if (!inputIsActive()) return;
+    if (!deviceInputActive()) return;
     if (!event.ctrlKey && !event.metaKey && !event.altKey && isPreventedKey(event.code)) {
       event.preventDefault();
     }
@@ -480,7 +526,7 @@ export function createPlayer(ctx, colliders) {
   }
 
   function onKeyUp(event) {
-    if (!inputIsActive()) return;
+    if (!deviceInputActive()) return;
     if (!event.ctrlKey && !event.metaKey && !event.altKey && isPreventedKey(event.code)) {
       event.preventDefault();
     }
@@ -521,6 +567,105 @@ export function createPlayer(ctx, colliders) {
     teleport(payload?.x ?? spawn.x, payload?.z ?? spawn.z);
   }
 
+  function onInputMove(payload) {
+    touchMode = true;
+    busInputSeen = true;
+    if (!touchInputActive()) return;
+    const x = Number.isFinite(payload?.x) ? payload.x : 0;
+    const y = Number.isFinite(payload?.y) ? payload.y : 0;
+    stickX = clamp(x, -1, 1);
+    stickY = clamp(y, -1, 1);
+    if (Math.hypot(stickX, stickY) < CONFIG.stickDeadzone) {
+      stickX = 0;
+      stickY = 0;
+    }
+  }
+
+  function onInputLook(payload) {
+    touchMode = true;
+    busInputSeen = true;
+    if (!touchInputActive()) return;
+    applyLook(payload?.dx, payload?.dy);
+  }
+
+  function onInputAction(payload) {
+    touchMode = true;
+    busInputSeen = true;
+    if (!touchInputActive()) return;
+    const action = payload?.action;
+    const phase = payload?.phase;
+    if ((action !== 'interact' && action !== 'drop' && action !== 'lid')
+        || (phase !== 'tap' && phase !== 'holdStart' && phase !== 'holdEnd')) return;
+
+    if (action === 'drop') {
+      if (phase === 'tap' || phase === 'holdStart') ctx.bus?.emit?.('interact', dropPayload);
+      return;
+    }
+    if (action === 'lid') {
+      if (phase === 'tap' || phase === 'holdStart') ctx.bus?.emit?.('interact', lidPayload);
+      return;
+    }
+
+    if (phase === 'tap') {
+      if (pressActive) finishPress(true);
+      beginPress();
+      finishPress(false);
+    } else if (phase === 'holdStart') {
+      if (pressActive) finishPress(true);
+      beginPress();
+      if (pressActive && !holdStarted) {
+        holdStarted = true;
+        pressDuration = CONFIG.holdThreshold;
+        emitHoldStart(pressId);
+      }
+    } else {
+      finishPress(false);
+    }
+  }
+
+  function onWindowTouchStart() {
+    touchMode = true;
+    lastPointerWasTouch = true;
+  }
+
+  function onWindowPointerDown(event) {
+    lastPointerWasTouch = event?.pointerType === 'touch' || event?.pointerType === 'pen';
+    if (lastPointerWasTouch) touchMode = true;
+  }
+
+  function onFallbackTouchStart(event) {
+    if (busInputSeen || event?.target !== canvas || event?.touches?.length !== 1) return;
+    const touch = event.touches[0];
+    if (!touch) return;
+    touchMode = true;
+    lastPointerWasTouch = true;
+    fallbackTouchId = touch.identifier;
+    fallbackTouchX = Number.isFinite(touch.clientX) ? touch.clientX : 0;
+    fallbackTouchY = Number.isFinite(touch.clientY) ? touch.clientY : 0;
+  }
+
+  function onFallbackTouchMove(event) {
+    if (busInputSeen || event?.target !== canvas || event?.touches?.length !== 1
+        || !touchInputActive()) return;
+    const touch = event.touches[0];
+    if (!touch || touch.identifier !== fallbackTouchId) return;
+    event.preventDefault?.();
+    const nextX = Number.isFinite(touch.clientX) ? touch.clientX : fallbackTouchX;
+    const nextY = Number.isFinite(touch.clientY) ? touch.clientY : fallbackTouchY;
+    const dx = nextX - fallbackTouchX;
+    const dy = nextY - fallbackTouchY;
+    fallbackTouchX = nextX;
+    fallbackTouchY = nextY;
+    applyLook(dx, dy);
+  }
+
+  function onFallbackTouchEnd(event) {
+    if (busInputSeen || event?.target !== canvas) return;
+    fallbackTouchId = null;
+    fallbackTouchX = 0;
+    fallbackTouchY = 0;
+  }
+
   function update(dt) {
     const frameDt = Number.isFinite(dt) ? clamp(dt, 0, CONFIG.maxFrameDelta) : 0;
     const active = inputIsActive();
@@ -528,14 +673,21 @@ export function createPlayer(ctx, colliders) {
     let strafe = 0;
 
     if (active) {
-      forward = (keyForward ? 1 : 0) - (keyBackward ? 1 : 0);
-      strafe = (keyRight ? 1 : 0) - (keyLeft ? 1 : 0);
+      forward = (keyForward ? 1 : 0) - (keyBackward ? 1 : 0) + stickY;
+      strafe = (keyRight ? 1 : 0) - (keyLeft ? 1 : 0) + stickX;
+    }
+
+    if (!Number.isFinite(forward) || !Number.isFinite(strafe)) {
+      forward = 0;
+      strafe = 0;
     }
 
     if (forward !== 0 || strafe !== 0) {
       const inputLength = Math.sqrt(forward * forward + strafe * strafe);
+      const magnitude = Math.min(inputLength, 1);
       const targetSpeed = baseSpeed
-        * ((keyShiftLeft || keyShiftRight) ? CONFIG.shuffleMultiplier : 1);
+        * ((keyShiftLeft || keyShiftRight) ? CONFIG.shuffleMultiplier : 1)
+        * magnitude;
       const sinYaw = Math.sin(yaw);
       const cosYaw = Math.cos(yaw);
       const wishX = ((-sinYaw * forward) + (cosYaw * strafe)) / inputLength;
@@ -624,33 +776,54 @@ export function createPlayer(ctx, colliders) {
     clearInput(true);
     disposed = true;
     canvas?.removeEventListener?.('click', onCanvasClick);
-    document.removeEventListener('pointerlockchange', onPointerLockChange);
-    document.removeEventListener('pointerlockerror', onPointerLockError);
-    document.removeEventListener('mousemove', onMouseMove);
-    document.removeEventListener('visibilitychange', onVisibilityChange);
-    window.removeEventListener('mousedown', onMouseDown);
-    window.removeEventListener('mouseup', onMouseUp);
-    window.removeEventListener('keydown', onKeyDown);
-    window.removeEventListener('keyup', onKeyUp);
-    window.removeEventListener('blur', onWindowBlur);
-    window.removeEventListener('focus', onWindowFocus);
+    canvas?.removeEventListener?.('touchstart', onFallbackTouchStart);
+    canvas?.removeEventListener?.('touchmove', onFallbackTouchMove);
+    canvas?.removeEventListener?.('touchend', onFallbackTouchEnd);
+    canvas?.removeEventListener?.('touchcancel', onFallbackTouchEnd);
+    document.removeEventListener?.('pointerlockchange', onPointerLockChange);
+    document.removeEventListener?.('pointerlockerror', onPointerLockError);
+    document.removeEventListener?.('mousemove', onMouseMove);
+    document.removeEventListener?.('visibilitychange', onVisibilityChange);
+    window.removeEventListener?.('mousedown', onMouseDown);
+    window.removeEventListener?.('mouseup', onMouseUp);
+    window.removeEventListener?.('keydown', onKeyDown);
+    window.removeEventListener?.('keyup', onKeyUp);
+    window.removeEventListener?.('blur', onWindowBlur);
+    window.removeEventListener?.('focus', onWindowFocus);
+    window.removeEventListener?.('touchstart', onWindowTouchStart);
+    window.removeEventListener?.('pointerdown', onWindowPointerDown);
     if (typeof unsubscribeTeleport === 'function') unsubscribeTeleport();
     else ctx.bus?.off?.('debug:teleport', onDebugTeleport);
+    if (typeof unsubscribeMove === 'function') unsubscribeMove();
+    else ctx.bus?.off?.('input:move', onInputMove);
+    if (typeof unsubscribeLook === 'function') unsubscribeLook();
+    else ctx.bus?.off?.('input:look', onInputLook);
+    if (typeof unsubscribeAction === 'function') unsubscribeAction();
+    else ctx.bus?.off?.('input:action', onInputAction);
   }
 
   canvas?.addEventListener?.('click', onCanvasClick);
-  document.addEventListener('pointerlockchange', onPointerLockChange);
-  document.addEventListener('pointerlockerror', onPointerLockError);
-  document.addEventListener('mousemove', onMouseMove);
-  document.addEventListener('visibilitychange', onVisibilityChange);
-  window.addEventListener('mousedown', onMouseDown);
-  window.addEventListener('mouseup', onMouseUp);
-  window.addEventListener('keydown', onKeyDown);
-  window.addEventListener('keyup', onKeyUp);
-  window.addEventListener('blur', onWindowBlur);
-  window.addEventListener('focus', onWindowFocus);
+  canvas?.addEventListener?.('touchstart', onFallbackTouchStart, { passive: true });
+  canvas?.addEventListener?.('touchmove', onFallbackTouchMove, { passive: false });
+  canvas?.addEventListener?.('touchend', onFallbackTouchEnd, { passive: true });
+  canvas?.addEventListener?.('touchcancel', onFallbackTouchEnd, { passive: true });
+  document.addEventListener?.('pointerlockchange', onPointerLockChange);
+  document.addEventListener?.('pointerlockerror', onPointerLockError);
+  document.addEventListener?.('mousemove', onMouseMove);
+  document.addEventListener?.('visibilitychange', onVisibilityChange);
+  window.addEventListener?.('mousedown', onMouseDown);
+  window.addEventListener?.('mouseup', onMouseUp);
+  window.addEventListener?.('keydown', onKeyDown);
+  window.addEventListener?.('keyup', onKeyUp);
+  window.addEventListener?.('blur', onWindowBlur);
+  window.addEventListener?.('focus', onWindowFocus);
+  window.addEventListener?.('touchstart', onWindowTouchStart, { passive: true });
+  window.addEventListener?.('pointerdown', onWindowPointerDown, { passive: true });
 
   unsubscribeTeleport = ctx.bus?.on?.('debug:teleport', onDebugTeleport);
+  unsubscribeMove = ctx.bus?.on?.('input:move', onInputMove);
+  unsubscribeLook = ctx.bus?.on?.('input:look', onInputLook);
+  unsubscribeAction = ctx.bus?.on?.('input:action', onInputAction);
 
   syncCameraPose(0);
 
@@ -681,5 +854,11 @@ export function createPlayer(ctx, colliders) {
       return currentTarget?.id ?? null;
     },
     dispose,
+    isTouchActive() {
+      return touchMode;
+    },
+    getStick() {
+      return { x: stickX, y: stickY };
+    },
   };
 }

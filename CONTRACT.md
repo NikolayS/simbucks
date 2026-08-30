@@ -299,3 +299,44 @@ export function showTitle(onStart)
 3. Geometry sits at the layout coordinates; nothing intersects the player aisle.
 4. You report: what you built, anything you could not do, and any contract
    objection.
+
+## 9. TOUCH INPUT (added after the first touch-device report)
+The game must be playable on a touch screen with no keyboard, no mouse and no
+pointer lock. Desktop behaviour must not change.
+
+**Detection.** Touch UI appears when the device reports touch
+(`navigator.maxTouchPoints > 0` or `'ontouchstart' in window`) OR when the
+first real `touchstart` is seen. Hybrid laptops must work both ways: seeing a
+touch shows the touch UI, seeing a mouse or key event hides it again. Never
+gate on user-agent sniffing or on screen width.
+
+**Ownership.** `src/ui/hud.js` owns every on-screen control (the DOM). It
+never moves the player and never raycasts. `src/player/controls.js` owns all
+movement, looking and interaction dispatch, exactly as it does for keyboard.
+The HUD talks to controls only through the bus:
+
+| event | payload | meaning |
+|---|---|---|
+| `input:move` | `{x, y}` | stick vector, each -1..1, y positive = forward. `{x:0,y:0}` on release |
+| `input:look` | `{dx, dy}` | look delta in CSS pixels since the last event |
+| `input:action` | `{action, phase}` | `action` is `'interact' \| 'drop' \| 'lid'`; `phase` is `'tap' \| 'holdStart' \| 'holdEnd'` |
+
+`controls.js` treats `input:action` with `action:'interact'` exactly as it
+treats the E key — it resolves the current centre-screen raycast target and
+emits the existing `interact` event, so `stations.js` needs no change at all.
+`'drop'` maps to Q and `'lid'` to L.
+
+**Required touch UI** (HUD): a left-thumb virtual stick; a right-side primary
+ACT button that supports both tap and hold, sized for a thumb (min 64 px, in
+the lower right, clear of the meter); small DROP and LID buttons; and
+drag-anywhere-else-to-look. The crosshair stays centre-screen and the prompt
+must remain readable — on a touch device, aiming is done by dragging the view,
+so the prompt has to be visible while a thumb is on the stick.
+
+**Pointer lock must never be required.** On a touch device the title card's
+START must begin the shift without requesting a lock, and the "CLICK TO
+RESUME" overlay must never appear.
+
+**Layout.** All touch controls scale with `vmin`, sit inside `env(safe-area-inset-*)`,
+and must not overlap the ticket rail, stat strip, meter or cup chip in either
+orientation from 360x640 up.

@@ -224,6 +224,14 @@ export function buildProps(ctx) {
   const boxes = new BoxBatch(group);
   const cylinders = new CylBatch(group);
   const colliders = [];
+  const KEEP_OUT = [L.kiosk.outer, (L.backHouse ?? L.kiosk?.backHouse)?.outer]
+    .filter(Boolean)
+    .map((rect) => ({
+      x0: rect.x0 - 0.5,
+      x1: rect.x1 + 0.5,
+      z0: rect.z0 - 0.5,
+      z1: rect.z1 + 0.5,
+    }));
 
   function addCollider(cx, cy, cz, sx, sy, sz, pad = 0.15) {
     colliders.push(new THREE.Box3(
@@ -249,16 +257,13 @@ export function buildProps(ctx) {
 
   // All prop placement passes through this clearance test.
   function blocked(x, z, r = 0) {
-    const outer = L.kiosk.outer;
-    const x0 = outer.x0 - 0.5;
-    const x1 = outer.x1 + 0.5;
-    const z0 = outer.z0 - 0.5;
-    const z1 = outer.z1 + 0.5;
-    const nearestX = THREE.MathUtils.clamp(x, x0, x1);
-    const nearestZ = THREE.MathUtils.clamp(z, z0, z1);
-    const kioskDx = x - nearestX;
-    const kioskDz = z - nearestZ;
-    if (kioskDx * kioskDx + kioskDz * kioskDz <= r * r) return true;
+    for (const rect of KEEP_OUT) {
+      const nearestX = THREE.MathUtils.clamp(x, rect.x0, rect.x1);
+      const nearestZ = THREE.MathUtils.clamp(z, rect.z0, rect.z1);
+      const dx = x - nearestX;
+      const dz = z - nearestZ;
+      if (dx * dx + dz * dz <= r * r) return true;
+    }
 
     const clearance = r + 0.6;
     const clearanceSq = clearance * clearance;
@@ -284,13 +289,10 @@ export function buildProps(ctx) {
     const rectX1 = cx + hx;
     const rectZ0 = cz - hz;
     const rectZ1 = cz + hz;
-    const outer = L.kiosk.outer;
-    const kioskX0 = outer.x0 - 0.5;
-    const kioskX1 = outer.x1 + 0.5;
-    const kioskZ0 = outer.z0 - 0.5;
-    const kioskZ1 = outer.z1 + 0.5;
-    if (rectX1 >= kioskX0 && rectX0 <= kioskX1
-      && rectZ1 >= kioskZ0 && rectZ0 <= kioskZ1) return true;
+    for (const rect of KEEP_OUT) {
+      if (rectX1 >= rect.x0 && rectX0 <= rect.x1
+        && rectZ1 >= rect.z0 && rectZ0 <= rect.z1) return true;
+    }
 
     const order = L.queue.order;
     for (let i = 0; i < order.n; i += 1) {
@@ -439,17 +441,20 @@ export function buildProps(ctx) {
     for (let attempt = 0; attempt < 48; attempt += 1) {
       const u = (rng() + itemIndex * 0.61803398875 + attempt * 0.38196601125) % 1;
       const v = (rng() + itemIndex * 0.41421356237 + attempt * 0.73205080757) % 1;
-      const x = table.x + (u * 2 - 1) * xReach;
-      const z = table.z + (v * 2 - 1) * zReach;
+      const point = worldPoint(
+        { x: table.x, z: table.z, rotY: table.rotY ?? 0 },
+        (u * 2 - 1) * xReach,
+        (v * 2 - 1) * zReach,
+      );
       const overlaps = occupied.some((item) => {
-        const dx = x - item.x;
-        const dz = z - item.z;
+        const dx = point.x - item.x;
+        const dz = point.z - item.z;
         const spacing = radius + item.radius + 0.025;
         return dx * dx + dz * dz < spacing * spacing;
       });
-      if (!overlaps && !blocked(x, z, radius)) {
-        occupied.push({ x, z, radius });
-        return { x, z };
+      if (!overlaps && !blocked(point.x, point.z, radius)) {
+        occupied.push({ x: point.x, z: point.z, radius });
+        return { x: point.x, z: point.z };
       }
     }
     return null;
@@ -498,38 +503,43 @@ export function buildProps(ctx) {
     }
   }
 
+  // Tables line the kiosk mural's west face; layout.terminal.tables supplies centre and rotation.
   function buildTables() {
     const size = T.tableSize;
-    const tableRadius = Math.hypot(size.w, size.d) / 2;
 
-    for (const table of T.tables) {
-      if (blocked(table.x, table.z, tableRadius)) continue;
+    T.tables.forEach((entry) => {
+      if (!entry) return;
+      const table = { x: entry.x, z: entry.z, rotY: entry.rotY ?? 0 };
+      const cosine = Math.abs(Math.cos(table.rotY));
+      const sine = Math.abs(Math.sin(table.rotY));
+      const footWidth = cosine * size.w + sine * size.d;
+      const footDepth = sine * size.w + cosine * size.d;
+      if (blockedBox(table.x, table.z, footWidth, footDepth)) return;
 
       placeBox('oak', table.x, size.h - 0.06 / 2, table.z,
-        size.w, 0.06, size.d);
+        size.w, 0.06, size.d, table.rotY);
       placeBox('oakDark', table.x, 0.99 - 0.05 / 2, table.z,
-        size.w - 0.08, 0.05, size.d - 0.08);
+        size.w - 0.08, 0.05, size.d - 0.08, table.rotY);
 
       const legX = size.w / 2 - 0.30;
       const legZ = size.d / 2 - 0.30;
       for (const xSign of [-1, 1]) {
         for (const zSign of [-1, 1]) {
-          placeBox('blackMatte', table.x + xSign * legX, 0.47,
-            table.z + zSign * legZ, 0.09, 0.94, 0.09);
+          const leg = worldPoint(table, xSign * legX, zSign * legZ);
+          placeBox('blackMatte', leg.x, 0.47, leg.z, 0.09, 0.94, 0.09);
         }
       }
 
       for (const side of [-1, 1]) {
         for (let stoolIndex = 0; stoolIndex < 5; stoolIndex += 1) {
-          const stoolX = table.x + (stoolIndex - 2) * 1.02;
-          const stoolZ = table.z + side * 0.56;
-          placeCylinder('oak', stoolX, 0.75 - 0.05 / 2, stoolZ,
+          const stool = worldPoint(table, (stoolIndex - 2) * 1.02, side * 0.56);
+          placeCylinder('oak', stool.x, 0.75 - 0.05 / 2, stool.z,
             0.16, 0.05, 12);
 
           for (let legIndex = 0; legIndex < 4; legIndex += 1) {
             const angle = Math.PI / 4 + legIndex * Math.PI / 2;
-            const legCentreX = stoolX + Math.cos(angle) * 0.105;
-            const legCentreZ = stoolZ + Math.sin(angle) * 0.105;
+            const legCentreX = stool.x + Math.cos(angle) * 0.105;
+            const legCentreZ = stool.z + Math.sin(angle) * 0.105;
             const rotX = -Math.sin(angle) * 0.12;
             const rotZ = Math.cos(angle) * 0.12;
             placeCylinder('blackMatte', legCentreX, 0.375, legCentreZ,
@@ -539,8 +549,11 @@ export function buildProps(ctx) {
       }
 
       buildTableScatter(table);
-      addCollider(table.x, size.h / 2, table.z, size.w, size.h, size.d);
-    }
+      addCollider(table.x, size.h / 2, table.z,
+        footWidth,
+        size.h,
+        footDepth);
+    });
   }
 
   function buildMerch() {
@@ -656,7 +669,7 @@ export function buildProps(ctx) {
     const coneTilt = 0.30;
     const coneY = Math.abs(Math.cos(coneTilt)) * coneHeight / 2
       + Math.abs(Math.sin(coneTilt)) * coneDepth / 2;
-    for (const [x, z] of [[-9.80, 5.60], [2.20, 6.60], [-4.00, 8.40]]) {
+    for (const [x, z] of [[-11.60, 4.40], [2.20, 6.60], [-4.00, 8.40]]) {
       const rotY = rng() * Math.PI * 2;
       const cone = { x, z, rotY };
       const nearBoard = worldPoint(cone, 0, -0.09);
@@ -730,8 +743,8 @@ export function buildProps(ctx) {
       cartSine * cartBodyWidth + cartCosine * cartBodyDepth,
       0);
 
-    const crateZ = -3.85;
-    for (const columnX of [-9.10, -8.10]) {
+    const crateZ = -4.20;
+    for (const columnX of [-9.15, -8.25]) {
       for (let k = 0; k < 3; k += 1) {
         const x = columnX + (rng() * 2 - 1) * 0.03;
         const z = crateZ + (rng() * 2 - 1) * 0.03;
@@ -743,7 +756,7 @@ export function buildProps(ctx) {
           0.60, 0.03, 0.44, rotY);
       }
     }
-    addCollider(-8.50, 0.645, -3.85, 1.80, 1.29, 0.90, 0);
+    addCollider(-8.70, 0.645, -4.20, 1.70, 1.29, 0.90, 0);
 
     const bagLocalX = [-1.20, 1.30, -1.10, 1.25, -1.15];
     const bagColours = [0x2C3038, 0x3E4A5A, 0x5A4238, 0x2F4F45, 0x6B6560];
@@ -773,7 +786,7 @@ export function buildProps(ctx) {
       }
     });
 
-    for (const [x, z] of [[-9.20, 6.80], [5.60, 5.80], [-16.80, -5.60]]) {
+    for (const [x, z] of [[-11.20, 6.60], [5.60, 5.80], [-16.80, -5.60]]) {
       placeCylinder('blackMatte', x, 0.425, z, 0.24, 0.85, 12);
       placeCylinder('chrome', x, 0.87, z, 0.255, 0.04, 12);
       placeCylinder('blackGloss', x, 0.925, z, 0.235, 0.07, 12);

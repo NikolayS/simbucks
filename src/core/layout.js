@@ -33,7 +33,7 @@ export const LAYOUT = Object.freeze({
     handoff:    { x0: 3.00, x1: 4.60, z0: 0.90, z1: 1.50 },
   },
   back: {
-    cupStack:  { x: -4.60, z: -2.20 },
+    cupStack:  { x: -5.15, z: -2.20 },
     grinder:   { x: -3.60, z: -2.20 },
     espresso:  { x: -1.80, z: -2.20, groups: [-2.25, -1.35] },
     steamWand: { x: -0.95, z: -2.20 },
@@ -43,6 +43,25 @@ export const LAYOUT = Object.freeze({
     iceWell:   { x:  3.00, z: -2.20 },
     sink:      { x:  3.90, z: -2.20 },
     coldBrewTap: { x: 4.30, z: -1.00, spoutY: 1.25 },
+  },
+  // The back-of-house half of the shop, behind the service bar: prep bench,
+  // stock shelving, crates and the staff door. Visible over the bar from the
+  // aisle and joined to it by a doorway cut through the rear run.
+  backHouse: {
+    outer: { x0: -6.60, x1: 0.60, z0: -6.40, z1: -3.20 },
+    radius: 1.10,
+    wall: 0.70,
+    benchTop: 0.95,
+    screenWall: 1.55,
+    doorway: { x0: -4.90, x1: -4.00 },
+    fittings: {
+      prepBench: { x0: -6.00, x1: -3.20, z: -5.90 },
+      shelving:  { x0: -2.60, x1: -0.20, z: -5.90, tiers: [0.55, 1.05, 1.55] },
+      fridge:    { x: -0.30, z: -4.30 },
+      dishSink:  { x: -6.00, z: -4.10 },
+      crateStack:{ x: -2.10, z: -4.00 },
+      waterJugs: { x: -3.40, z: -4.10 },
+    },
   },
   player: { spawn: { x: 0, z: -0.60 }, eye: 1.62, speed: 2.6, margin: 0.40 },
   queue: {
@@ -63,7 +82,7 @@ export const LAYOUT = Object.freeze({
     gateSign: { x: -1.00, y: 4.60, z: -8.50, w: 7.20, h: 1.50 },
     aelia: { x0: -30, x1: -16, z0: -12, z1: -2 },
     seating: { x0: -20, x1: -11, z0: -6, z1: 8 },
-    tables: [{ x: -11.60, z: 1.20 }, { x: -11.60, z: 3.40 }],
+    tables: [{ x: -9.40, z: -0.60, rotY: Math.PI / 2 }, { x: -9.40, z: 5.40, rotY: Math.PI / 2 }],
     tableSize: { w: 4.60, d: 0.80, h: 1.05 },
     merch: { x0: 6.80, x1: 9.00, z0: 0.80, z1: 2.80, tiers: [0.75, 1.05, 1.35] },
   },
@@ -75,4 +94,8 @@ export const LAYOUT = Object.freeze({
     cherryGold: 0xE0A526, jet2Red: 0xE4002B, banner: 0xF5C518, ceiling: 0xF3F1EC,
   },
 });
+// The back-of-house block is reachable at both paths: it is written at the top
+// level, and aliased under `kiosk` because that is where callers look for it.
+LAYOUT.kiosk.backHouse = LAYOUT.backHouse;
+
 export default LAYOUT;

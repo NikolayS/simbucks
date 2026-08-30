@@ -333,85 +333,143 @@ export function buildEquipment(ctx) {
   // Traditional two-group espresso centrepiece.
   {
     const P = L.back.espresso;
+    const W = L.kiosk.backTop;
     const station = addStationGroup('espresso', P.x, P.z);
-    const bodyDepth = 0.55;
-    const bodyFrontZ = backMachineZ1 - P.z - 0.01;
-    const bodyBackZ = bodyFrontZ - bodyDepth;
-    const bodyZ = (bodyBackZ + bodyFrontZ) * 0.5;
-    const groupHeadZ = bodyFrontZ - 0.075;
-    const portafilterZ = bodyFrontZ - 0.13;
-    const gaugeZ = bodyFrontZ - 0.07;
-    const topTrayDepth = bodyDepth - 0.12;
-    const dripTrayDepth = 0.30;
-    const dripTrayZ = bodyFrontZ - dripTrayDepth * 0.5 - 0.01;
+    const zF = backMachineZ1 - P.z - 0.01;
+    const zB = zF - 0.55;
+    const bodyFrontZ = zF - 0.22;
+    const bodyParts = [
+      {
+        geometry: new THREE.BoxGeometry(1.16, 0.42, 0.33),
+        matrix: matrix(0, W + 0.21, (zB + bodyFrontZ) * 0.5),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.085, 0.42, 0.22),
+        matrix: matrix(-0.5375, W + 0.21, zF - 0.11),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.085, 0.42, 0.22),
+        matrix: matrix(0.5375, W + 0.21, zF - 0.11),
+      },
+    ];
     const body = addMesh(
       station,
-      'equip.espresso.lowerBody',
-      new THREE.BoxGeometry(1.16, 0.33, bodyDepth),
+      'equip.espresso.body',
+      mergeGeometry(bodyParts),
       materials.steel,
       true,
       true,
     );
-    body.position.set(0, L.kiosk.backTop + 0.175, bodyZ);
     interactableObjects.espresso = body;
 
+    blackAccentParts.push(
+      {
+        geometry: new THREE.BoxGeometry(1.20, 0.24, 0.36),
+        matrix: matrix(P.x, W + 0.54, P.z + zF - 0.13),
+      },
+      {
+        geometry: new THREE.BoxGeometry(1.05, 0.006, 0.28),
+        matrix: matrix(P.x, W + 0.016, P.z + zF - 0.15),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.016, 0.052, 0.016),
+        matrix: matrix(P.x, W + 0.345, P.z + zF - 0.175, 0, 0, 0.42),
+      },
+    );
+
     const chromeParts = [
-      { geometry: new THREE.CylinderGeometry(0.13, 0.13, 1.00, 20), matrix: matrix(0, L.kiosk.backTop + 0.42, bodyZ - 0.02, 0, 0, Math.PI / 2, 1, 1, 1.55) },
-      { geometry: new THREE.BoxGeometry(1.08, 0.035, dripTrayDepth), matrix: matrix(0, L.kiosk.backTop + 0.025, dripTrayZ) },
-      { geometry: new THREE.CylinderGeometry(0.007, 0.007, 0.30, 8), matrix: matrix(-0.45, L.kiosk.backTop + 0.585, bodyZ - 0.02, Math.PI / 2) },
-      { geometry: new THREE.CylinderGeometry(0.007, 0.007, 0.30, 8), matrix: matrix(0.45, L.kiosk.backTop + 0.585, bodyZ - 0.02, Math.PI / 2) },
-      { geometry: new THREE.CylinderGeometry(0.007, 0.007, 0.90, 8), matrix: matrix(0, L.kiosk.backTop + 0.585, bodyZ + 0.13, 0, 0, Math.PI / 2) },
-      { geometry: new THREE.CylinderGeometry(0.007, 0.007, 0.04, 8), matrix: matrix(-0.45, L.kiosk.backTop + 0.565, bodyZ - 0.17) },
-      { geometry: new THREE.CylinderGeometry(0.007, 0.007, 0.04, 8), matrix: matrix(0.45, L.kiosk.backTop + 0.565, bodyZ - 0.17) },
+      { geometry: new THREE.BoxGeometry(1.08, 0.012, 0.30), matrix: matrix(0, W + 0.006, zF - 0.15) },
+      { geometry: new THREE.BoxGeometry(1.08, 0.05, 0.014), matrix: matrix(0, W + 0.025, zF - 0.007) },
+      { geometry: new THREE.BoxGeometry(0.014, 0.05, 0.30), matrix: matrix(-0.533, W + 0.025, zF - 0.15) },
+      { geometry: new THREE.BoxGeometry(0.014, 0.05, 0.30), matrix: matrix(0.533, W + 0.025, zF - 0.15) },
+      { geometry: new THREE.BoxGeometry(1.10, 0.02, 0.30), matrix: matrix(0, W + 0.67, zF - 0.15) },
+      { geometry: new THREE.BoxGeometry(0.98, 0.14, 0.014), matrix: matrix(0, W + 0.35, zF - 0.213) },
+      { geometry: new THREE.CylinderGeometry(0.026, 0.026, 0.09, 12), matrix: matrix(0, W + 0.28, zF - 0.175) },
+      {
+        geometry: tube([
+          [0, W + 0.255, zF - 0.163],
+          [0, W + 0.235, zF - 0.115],
+          [0, W + 0.175, zF - 0.095],
+        ], 0.008, 16),
+        matrix: matrix(),
+      },
+      { geometry: new THREE.SphereGeometry(0.026, 10, 6), matrix: matrix(-0.60, W + 0.36, zF - 0.20) },
     ];
-    for (const groupX of P.groups) {
-      const x = groupX - P.x;
-      chromeParts.push(
-        { geometry: new THREE.CylinderGeometry(0.055, 0.06, 0.055, 16), matrix: matrix(x, L.kiosk.backTop + 0.25, groupHeadZ) },
-        { geometry: new THREE.CylinderGeometry(0.024, 0.028, 0.07, 12), matrix: matrix(x, L.kiosk.backTop + 0.195, groupHeadZ + 0.01) },
-        { geometry: new THREE.CylinderGeometry(0.006, 0.006, 0.065, 10), matrix: matrix(x - 0.014, L.kiosk.backTop + 0.145, groupHeadZ + 0.023, 0, 0, -0.15) },
-        { geometry: new THREE.CylinderGeometry(0.006, 0.006, 0.065, 10), matrix: matrix(x + 0.014, L.kiosk.backTop + 0.145, groupHeadZ + 0.023, 0, 0, 0.15) },
-      );
-    }
-    for (const x of [-0.25, 0, 0.25]) {
+    for (let i = 0; i < 11; i += 1) {
       chromeParts.push({
-        geometry: new THREE.CylinderGeometry(0.048, 0.048, 0.018, 16),
-        matrix: matrix(x, L.kiosk.backTop + 0.365, gaugeZ, Math.PI / 2),
+        geometry: new THREE.BoxGeometry(1.05, 0.010, 0.016),
+        matrix: matrix(0, W + 0.052, zF - 0.028 - i * 0.0255),
       });
     }
+    for (const groupX of P.groups) {
+      const gx = groupX - P.x;
+      chromeParts.push(
+        { geometry: new THREE.BoxGeometry(0.115, 0.10, 0.14), matrix: matrix(gx, W + 0.30, zF - 0.15) },
+        { geometry: new THREE.CylinderGeometry(0.058, 0.058, 0.105, 16), matrix: matrix(gx, W + 0.30, zF - 0.075) },
+        { geometry: new THREE.CylinderGeometry(0.050, 0.050, 0.020, 16), matrix: matrix(gx, W + 0.238, zF - 0.075) },
+        { geometry: new THREE.CylinderGeometry(0.046, 0.043, 0.038, 16), matrix: matrix(gx, W + 0.208, zF - 0.075) },
+        { geometry: new THREE.CylinderGeometry(0.0075, 0.006, 0.030, 8), matrix: matrix(gx - 0.016, W + 0.174, zF - 0.075) },
+        { geometry: new THREE.CylinderGeometry(0.0075, 0.006, 0.030, 8), matrix: matrix(gx + 0.016, W + 0.174, zF - 0.075) },
+        {
+          geometry: new THREE.CylinderGeometry(0.015, 0.017, 0.030, 10),
+          matrix: matrix(gx, W + 0.2019, zF - 0.0582, Math.PI / 2 + 0.33),
+        },
+      );
+
+      blackAccentParts.push({
+        geometry: new THREE.CylinderGeometry(0.013, 0.0155, 0.12, 10),
+        matrix: matrix(groupX, W + 0.1776, P.z + zF + 0.0128, Math.PI / 2 + 0.33),
+      });
+    }
+
+    const gaugeXs = [P.groups[0] - P.x, 0, P.groups[1] - P.x];
+    for (const x of gaugeXs) {
+      chromeParts.push({
+        geometry: new THREE.CylinderGeometry(0.043, 0.043, 0.016, 16),
+        matrix: matrix(x, W + 0.545, zF + 0.052, Math.PI / 2),
+      });
+    }
+    chromeParts.push(
+      {
+        geometry: tube([
+          [-0.50, W + 0.68, zF - 0.25],
+          [-0.50, W + 0.76, zF - 0.25],
+          [-0.50, W + 0.76, zF - 0.03],
+          [0.50, W + 0.76, zF - 0.03],
+          [0.50, W + 0.76, zF - 0.25],
+          [0.50, W + 0.68, zF - 0.25],
+        ], 0.009, 28),
+        matrix: matrix(),
+      },
+      {
+        geometry: tube([
+          [-0.60, W + 0.36, zF - 0.20],
+          [-0.66, W + 0.34, zF - 0.14],
+          [-0.68, W + 0.22, zF - 0.04],
+          [-0.68, W + 0.14, zF + 0.01],
+        ], 0.008),
+        matrix: matrix(),
+      },
+      {
+        geometry: new THREE.CylinderGeometry(0.024, 0.024, 0.05, 12),
+        matrix: matrix(-0.60, W + 0.38, zF - 0.20),
+      },
+    );
     addMesh(
       station,
-      'equip.espresso.upperAndChrome',
+      'equip.espresso.chrome',
       mergeGeometry(chromeParts),
       materials.chrome,
       true,
       true,
     );
 
-    blackAccentParts.push({
-      geometry: new THREE.BoxGeometry(0.94, 0.018, topTrayDepth),
-      matrix: matrix(P.x, L.kiosk.backTop + 0.558, P.z + bodyZ - 0.02),
-    });
-    for (const groupX of P.groups) {
-      const x = groupX - P.x;
-      blackAccentParts.push({
-        geometry: new THREE.BoxGeometry(0.035, 0.035, 0.25),
-        matrix: matrix(P.x + x, L.kiosk.backTop + 0.18, P.z + portafilterZ, 0.28),
-      });
-    }
-    for (let i = -4; i <= 4; i += 1) {
-      blackAccentParts.push({
-        geometry: new THREE.BoxGeometry(0.012, 0.008, dripTrayDepth - 0.03),
-        matrix: matrix(P.x + i * 0.105, L.kiosk.backTop + 0.047, P.z + dripTrayZ),
-      });
-    }
-
-    const faceGeometry = new THREE.CylinderGeometry(0.039, 0.039, 0.004, 16);
-    const gaugeFaces = new THREE.InstancedMesh(faceGeometry, materials.white, 3);
+    const faceGeometry = new THREE.CylinderGeometry(0.034, 0.034, 0.004, 16);
+    const gaugeFaces = new THREE.InstancedMesh(faceGeometry, materials.black, 3);
     gaugeFaces.name = 'equip.espresso.gaugeFaces';
     const gaugeDummy = new THREE.Object3D();
     for (let i = 0; i < 3; i += 1) {
-      gaugeDummy.position.set(-0.25 + i * 0.25, L.kiosk.backTop + 0.365, gaugeZ + 0.011);
+      gaugeDummy.position.set(gaugeXs[i], W + 0.545, zF + 0.0615);
       gaugeDummy.rotation.set(Math.PI / 2, 0, 0);
       gaugeDummy.scale.set(1, 1, 1);
       gaugeDummy.updateMatrix();
@@ -420,24 +478,20 @@ export function buildEquipment(ctx) {
     finishInstances(gaugeFaces, false, false);
     station.add(gaugeFaces);
 
-    const needleGeometry = new THREE.BoxGeometry(0.004, 0.031, 0.004);
-    const needles = new THREE.InstancedMesh(needleGeometry, materials.black, 3);
+    const needleGeometry = new THREE.BoxGeometry(0.0035, 0.027, 0.0035);
+    const needles = new THREE.InstancedMesh(needleGeometry, materials.white, 3);
     needles.name = 'equip.espresso.gaugeNeedles';
     for (let i = 0; i < 3; i += 1) {
-      gaugeDummy.position.set(-0.25 + i * 0.25, L.kiosk.backTop + 0.365, gaugeZ + 0.015);
-      gaugeDummy.rotation.set(0, 0, -0.55 + i * 0.23);
+      gaugeDummy.position.set(gaugeXs[i], W + 0.545, zF + 0.065);
+      gaugeDummy.rotation.set(0, 0, -0.6 + i * 0.28);
       gaugeDummy.updateMatrix();
       needles.setMatrixAt(i, gaugeDummy.matrix);
     }
     finishInstances(needles, false, false);
     station.add(needles);
-    stationAnchors.espresso = new THREE.Vector3(
-      P.groups[0],
-      L.kiosk.backTop + 0.075,
-      P.z + groupHeadZ + 0.023,
-    );
-    ledPositions.green.push([P.x + 0.43, L.kiosk.backTop + 0.365, P.z + bodyFrontZ - 0.003]);
-    ledPositions.red.push([P.x + 0.48, L.kiosk.backTop + 0.365, P.z + bodyFrontZ - 0.003]);
+    ledPositions.green.push([P.x - 0.545, W + 0.47, P.z + zF + 0.055]);
+    ledPositions.amber.push([P.x + 0.545, W + 0.47, P.z + zF + 0.055]);
+    stationAnchors.espresso = new THREE.Vector3(P.groups[0], W + 0.115, P.z + zF - 0.075);
   }
 
   // Articulated steam wand and parked stainless milk pitcher.

@@ -20,6 +20,9 @@ let titleDismissed = false;
 let resumeHintReadyAt = 0;
 let lastResumeHintHidden = null;
 let debugOpen = false;
+let touchMode = false;
+let lastTouchAt = 0;
+let resetTouchInputs = null;
 
 let pendingPrompt = null;
 let pendingTickets = [];
@@ -96,6 +99,24 @@ function clamp(value, low, high) {
   return Math.min(high, Math.max(low, finite(value, low)));
 }
 
+function emitInput(name, payload) {
+  try { bus?.emit?.(name, payload); }
+  catch (error) { warn(name, error); }
+}
+
+function setTouchMode(on) {
+  const next = Boolean(on);
+  if (touchMode === next) {
+    toggleClass(hudRoot, 'sb-touch', next);
+    return;
+  }
+  if (!next) resetTouchInputs?.();
+  touchMode = next;
+  toggleClass(hudRoot, 'sb-touch', touchMode);
+  lastResumeHintHidden = null;
+  try { updatePointerLockHint(); } catch (error) { warn('touch-mode', error); }
+}
+
 function renderable(value, fallback = '') {
   if (typeof value === 'string') return value.trim() || fallback;
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
@@ -155,6 +176,22 @@ function orderMods(order) {
     if (text) result.push(text);
   }
   return result;
+}
+
+function foamLabel(foam) {
+  if (foam !== 'wet' && foam !== 'micro' && foam !== 'dry') return '';
+  let label = '';
+  try { label = ctxRef?.menu?.foamLabel?.(foam) ?? ''; } catch (error) { label = ''; }
+  if (typeof label !== 'string' || !label) {
+    label = foam === 'wet' ? 'wet foam' : foam === 'micro' ? 'microfoam' : 'dry foam';
+  }
+  return label;
+}
+
+function orderFoam(order) {
+  const steps = Array.isArray(order?.steps) ? order.steps : [];
+  const step = steps.find(s => s?.station === 'steamWand' && Object.prototype.hasOwnProperty.call(s || {}, 'foam'));
+  return foamLabel(step?.foam);
 }
 
 function buildPrompt() {
@@ -261,14 +298,22 @@ function refreshTicket(record, order) {
   const size = orderSize(order);
   writeText(record.drink, `${size}${size ? '  ' : ''}${orderDrink(order)}`);
   const mods = orderMods(order);
-  const signature = JSON.stringify(mods);
+  const modSource = Array.isArray(order?.mods) ? order.mods : [];
+  const hasNoFoam = modSource.some(mod => mod && typeof mod === 'object' && mod.id === 'noFoam')
+    || mods.some(mod => mod.trim().toLowerCase() === 'no foam');
+  const foam = hasNoFoam ? '' : orderFoam(order);
+  const signature = JSON.stringify({ foam, mods });
   if (record.modSignature === signature) return;
   record.modSignature = signature;
   record.mods.replaceChildren();
-  const shown = mods.slice(0, 4);
-  for (const mod of shown) record.mods.append(el('span', 'sb-mod-chip', mod));
-  if (mods.length > shown.length) record.mods.append(el('span', 'sb-mod-chip sb-mod-more', `+${mods.length - shown.length}`));
-  record.mods.hidden = mods.length === 0;
+  const chips = [
+    ...(foam ? [{ label: foam, className: 'sb-mod-chip sb-foam-chip' }] : []),
+    ...mods.map(mod => ({ label: mod, className: 'sb-mod-chip' })),
+  ];
+  const shown = chips.slice(0, 4);
+  for (const chip of shown) record.mods.append(el('span', chip.className, chip.label));
+  if (chips.length > shown.length) record.mods.append(el('span', 'sb-mod-chip sb-mod-more', `+${chips.length - shown.length}`));
+  record.mods.hidden = chips.length === 0;
 }
 
 function restoreTicket(record) {
@@ -649,6 +694,18 @@ function cupContents(cup) {
   return result;
 }
 
+function cupFoam(cup) {
+  const steps = Array.isArray(cup?.steps) ? cup.steps : [];
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    const step = steps[index];
+    if (step?.station !== 'steamWand') continue;
+    if (step.foam === 'wet' || step.foam === 'micro' || step.foam === 'dry') {
+      return foamLabel(step.foam);
+    }
+  }
+  return '';
+}
+
 function renderCup(cup) {
   if (!nodes.cupChip) return;
   if (cup == null) {
@@ -666,10 +723,14 @@ function renderCup(cup) {
   toggleClass(nodes.cupDrawing, 'sb-is-lidded', lidded);
   nodes.cupBadge.hidden = !lidded;
   writeText(nodes.cupSize, renderable(cup?.size, 'CUP').toUpperCase());
-  const contents = cupContents(cup);
+  const foam = cupFoam(cup);
+  const contents = [
+    ...(foam ? [{ label: foam, className: 'sb-cup-content sb-foam-chip' }] : []),
+    ...cupContents(cup).map(item => ({ label: item, className: 'sb-cup-content' })),
+  ];
   nodes.cupContents.replaceChildren();
   const shown = contents.slice(0, 6);
-  for (const item of shown) nodes.cupContents.append(el('span', 'sb-cup-content', item));
+  for (const item of shown) nodes.cupContents.append(el('span', item.className, item.label));
   if (contents.length > shown.length) nodes.cupContents.append(el('span', 'sb-cup-content', `+${contents.length - shown.length}`));
 }
 
@@ -763,7 +824,7 @@ function buildScreens() {
   wordmark.append(document.createTextNode('SIM'), el('span', 'sb-wordmark-star', '✱'), document.createTextNode('BUCKS'));
   const rule = el('div', 'sb-title-rule');
   const premise = el('p', 'sb-premise', 'Gatwick, 05:00. Two gates are boarding. Make the coffee.');
-  const controls = el('div', 'sb-controls');
+  const controls = el('div', 'sb-controls sb-controls-desktop');
   const bindings = [
     ['MOUSE', 'look'], ['WASD', 'move'], ['E', 'act'], ['HOLD E', 'meters'],
     ['Q', 'dump'], ['L', 'lid'], ['SHIFT', 'hurry'], ['ESC', 'release mouse'],
@@ -773,10 +834,20 @@ function buildScreens() {
     item.append(keycap(key), el('span', 'sb-control-label', description));
     controls.append(item);
   }
+  const touchControls = el('div', 'sb-controls sb-controls-touch');
+  const touchBindings = [
+    ['STICK', 'move'], ['ACT', 'act'], ['HOLD ACT', 'meters'],
+    ['DROP', 'dump'], ['LID', 'lid'], ['DRAG', 'look'],
+  ];
+  for (const [key, description] of touchBindings) {
+    const item = el('div', 'sb-control');
+    item.append(keycap(key), el('span', 'sb-control-label', description));
+    touchControls.append(item);
+  }
   const start = el('button', 'sb-primary-button', 'START SHIFT');
   start.type = 'button';
   const footer = el('p', 'sb-screen-footer', 'no assets · everything drawn and synthesised at runtime');
-  titleCard.append(wordmark, rule, premise, controls, start, footer);
+  titleCard.append(wordmark, rule, premise, controls, touchControls, start, footer);
   titleScreen.append(titleCard);
 
   const endScreen = el('section', 'sb-screen sb-end-screen');
@@ -815,7 +886,8 @@ function buildScreens() {
 function updatePointerLockHint() {
   if (!nodes.resumeHint) return;
   const screenOpen = !nodes.titleScreen?.hidden || !nodes.endScreen?.hidden;
-  const hidden = Boolean(document.pointerLockElement)
+  const hidden = touchMode
+    || Boolean(document.pointerLockElement)
     || !titleDismissed
     || screenOpen
     || Date.now() < resumeHintReadyAt;
@@ -831,6 +903,7 @@ function onPointerLockChange() {
 
 function showTitleInternal(onStart) {
   if (!nodes.titleScreen) return;
+  resetTouchInputs?.();
   titleCallback = typeof onStart === 'function' ? onStart : null;
   nodes.endScreen.hidden = true;
   nodes.titleScreen.hidden = false;
@@ -852,16 +925,19 @@ function activateTitle() {
   if (typeof callback === 'function') {
     try { callback(); } catch (error) { warn('start-callback', error); }
   }
-  try {
-    const canvas = ctxRef?.renderer?.domElement ?? document.querySelector('#app canvas');
-    const result = canvas?.requestPointerLock?.();
-    if (result && typeof result.catch === 'function') result.catch(() => {});
-  } catch (error) { warn('pointer-lock', error); }
+  if (!touchMode) {
+    try {
+      const canvas = ctxRef?.renderer?.domElement ?? document.querySelector('#app canvas');
+      const result = canvas?.requestPointerLock?.();
+      if (result && typeof result.catch === 'function') result.catch(() => {});
+    } catch (error) { warn('pointer-lock', error); }
+  }
   try { bus?.emit?.('hud:start'); } catch (error) { warn('hud-start', error); }
 }
 
 function renderEndCard(summary) {
   if (!nodes.endScreen) return;
+  resetTouchInputs?.();
   renderMeter(null);
   renderPrompt(null);
   renderCup(null);
@@ -925,6 +1001,242 @@ function buildDebug(layout) {
   }
   hudRoot.append(panel);
   nodes.debugPanel = panel;
+}
+
+function buildTouchControls() {
+  const lookLayer = el('div', 'sb-touch-look');
+  lookLayer.setAttribute('aria-hidden', 'true');
+
+  const controls = el('div', 'sb-touch-controls');
+  const stick = el('div', 'sb-touch-stick');
+  stick.setAttribute('role', 'application');
+  stick.setAttribute('aria-label', 'Move');
+  const stickKnob = el('div', 'sb-touch-stick-knob');
+  stickKnob.setAttribute('aria-hidden', 'true');
+  stick.append(stickKnob);
+
+  const actions = el('div', 'sb-touch-actions');
+  const act = el('button', 'sb-touch-button sb-touch-act', 'ACT');
+  const drop = el('button', 'sb-touch-button sb-touch-small sb-touch-drop', 'DROP');
+  const lid = el('button', 'sb-touch-button sb-touch-small sb-touch-lid', 'LID');
+  for (const button of [act, drop, lid]) button.type = 'button';
+  act.setAttribute('aria-label', 'Act or hold for meters');
+  drop.setAttribute('aria-label', 'Drop cup');
+  lid.setAttribute('aria-label', 'Add lid');
+  actions.append(drop, lid, act);
+  controls.append(stick, actions);
+  hudRoot.append(lookLayer, controls);
+  Object.assign(nodes, { touchLook: lookLayer, touchControls: controls, touchStick: stick,
+    touchStickKnob: stickKnob, touchAct: act, touchDrop: drop, touchLid: lid });
+
+  let stickPointerId = null;
+  let stickCentreX = 0;
+  let stickCentreY = 0;
+  let stickRadius = 1;
+  let lastMoveX = 0;
+  let lastMoveY = 0;
+  let lookPointerId = null;
+  let lookX = 0;
+  let lookY = 0;
+  let actPointerId = null;
+  let actHoldTimer = 0;
+  let actHolding = false;
+
+  const releaseCapture = (node, pointerId) => {
+    if (pointerId == null) return;
+    try {
+      if (node?.hasPointerCapture?.(pointerId)) node.releasePointerCapture(pointerId);
+    } catch (_) { /* capture may already have been released by the browser */ }
+  };
+
+  const emitMove = (x, y, force = false) => {
+    const nextX = clamp(x, -1, 1);
+    const nextY = clamp(y, -1, 1);
+    if (!force && Math.abs(nextX - lastMoveX) < 0.02 && Math.abs(nextY - lastMoveY) < 0.02) return;
+    lastMoveX = nextX;
+    lastMoveY = nextY;
+    emitInput('input:move', { x: nextX, y: nextY });
+  };
+
+  const moveStick = event => {
+    if (event?.pointerId !== stickPointerId) return;
+    const dx = finite(event?.clientX, stickCentreX) - stickCentreX;
+    const dy = finite(event?.clientY, stickCentreY) - stickCentreY;
+    const distance = Math.hypot(dx, dy);
+    const scale = distance > stickRadius ? stickRadius / distance : 1;
+    const offsetX = dx * scale;
+    const offsetY = dy * scale;
+    writeStyle(stickKnob, 'transform', `translate3d(${offsetX.toFixed(2)}px, ${offsetY.toFixed(2)}px, 0)`);
+    if (distance / stickRadius < 0.15) emitMove(0, 0);
+    else emitMove(offsetX / stickRadius, -offsetY / stickRadius);
+  };
+
+  const releaseStick = () => {
+    if (stickPointerId == null) return;
+    const pointerId = stickPointerId;
+    stickPointerId = null;
+    toggleClass(stick, 'sb-is-pressed', false);
+    writeStyle(stickKnob, 'transform', 'translate3d(0px, 0px, 0)');
+    emitMove(0, 0, true);
+    releaseCapture(stick, pointerId);
+  };
+
+  stick.addEventListener('pointerdown', event => {
+    if (!touchMode || event?.pointerType === 'mouse' || stickPointerId != null) return;
+    event.preventDefault?.();
+    const rect = stick.getBoundingClientRect();
+    const knobRect = stickKnob.getBoundingClientRect();
+    stickCentreX = rect.left + rect.width / 2;
+    stickCentreY = rect.top + rect.height / 2;
+    stickRadius = Math.max(1, (Math.min(rect.width, rect.height) - Math.min(knobRect.width, knobRect.height)) / 2);
+    stickPointerId = event.pointerId;
+    toggleClass(stick, 'sb-is-pressed', true);
+    try { stick.setPointerCapture?.(stickPointerId); } catch (_) { /* capture is best-effort */ }
+    moveStick(event);
+  });
+  stick.addEventListener('pointermove', moveStick);
+  stick.addEventListener('pointerup', event => {
+    if (event?.pointerId === stickPointerId) releaseStick();
+  });
+  stick.addEventListener('pointercancel', event => {
+    if (event?.pointerId === stickPointerId) releaseStick();
+  });
+  stick.addEventListener('lostpointercapture', event => {
+    if (event?.pointerId === stickPointerId) releaseStick();
+  });
+
+  const finishAct = completed => {
+    if (actPointerId == null) return;
+    const pointerId = actPointerId;
+    const wasHolding = actHolding;
+    actPointerId = null;
+    actHolding = false;
+    if (actHoldTimer) clearTimeout(actHoldTimer);
+    actHoldTimer = 0;
+    toggleClass(act, 'sb-is-pressed', false);
+    if (wasHolding) emitInput('input:action', { action: 'interact', phase: 'holdEnd' });
+    else if (completed) emitInput('input:action', { action: 'interact', phase: 'tap' });
+    releaseCapture(act, pointerId);
+  };
+
+  act.addEventListener('pointerdown', event => {
+    if (!touchMode || event?.pointerType === 'mouse' || actPointerId != null) return;
+    event.preventDefault?.();
+    actPointerId = event.pointerId;
+    actHolding = false;
+    toggleClass(act, 'sb-is-pressed', true);
+    try { act.setPointerCapture?.(actPointerId); } catch (_) { /* capture is best-effort */ }
+    actHoldTimer = setTimeout(() => {
+      try {
+        if (actPointerId == null || actHolding) return;
+        actHolding = true;
+        emitInput('input:action', { action: 'interact', phase: 'holdStart' });
+      } catch (error) { warn('touch-act-hold', error); }
+    }, 180);
+  });
+  act.addEventListener('pointerup', event => {
+    if (event?.pointerId === actPointerId) finishAct(true);
+  });
+  act.addEventListener('pointercancel', event => {
+    if (event?.pointerId === actPointerId) finishAct(false);
+  });
+  act.addEventListener('lostpointercapture', event => {
+    if (event?.pointerId === actPointerId) finishAct(false);
+  });
+
+  const tapCancellers = [];
+  const wireTapAction = (button, action) => {
+    let pointerId = null;
+    const finish = completed => {
+      if (pointerId == null) return;
+      const releasedId = pointerId;
+      pointerId = null;
+      toggleClass(button, 'sb-is-pressed', false);
+      if (completed) emitInput('input:action', { action, phase: 'tap' });
+      releaseCapture(button, releasedId);
+    };
+    button.addEventListener('pointerdown', event => {
+      if (!touchMode || event?.pointerType === 'mouse' || pointerId != null) return;
+      event.preventDefault?.();
+      pointerId = event.pointerId;
+      toggleClass(button, 'sb-is-pressed', true);
+      try { button.setPointerCapture?.(pointerId); } catch (_) { /* capture is best-effort */ }
+    });
+    button.addEventListener('pointerup', event => {
+      if (event?.pointerId === pointerId) finish(true);
+    });
+    button.addEventListener('pointercancel', event => {
+      if (event?.pointerId === pointerId) finish(false);
+    });
+    button.addEventListener('lostpointercapture', event => {
+      if (event?.pointerId === pointerId) finish(false);
+    });
+    tapCancellers.push(() => finish(false));
+  };
+  wireTapAction(drop, 'drop');
+  wireTapAction(lid, 'lid');
+
+  const releaseLook = () => {
+    if (lookPointerId == null) return;
+    const pointerId = lookPointerId;
+    lookPointerId = null;
+    releaseCapture(lookLayer, pointerId);
+  };
+  lookLayer.addEventListener('pointerdown', event => {
+    if (!touchMode || event?.pointerType === 'mouse' || lookPointerId != null) return;
+    event.preventDefault?.();
+    lookPointerId = event.pointerId;
+    lookX = finite(event?.clientX, 0);
+    lookY = finite(event?.clientY, 0);
+    try { lookLayer.setPointerCapture?.(lookPointerId); } catch (_) { /* capture is best-effort */ }
+  });
+  lookLayer.addEventListener('pointermove', event => {
+    if (event?.pointerId !== lookPointerId) return;
+    const x = finite(event?.clientX, lookX);
+    const y = finite(event?.clientY, lookY);
+    const dx = x - lookX;
+    const dy = y - lookY;
+    lookX = x;
+    lookY = y;
+    emitInput('input:look', { dx, dy });
+  });
+  lookLayer.addEventListener('pointerup', event => {
+    if (event?.pointerId === lookPointerId) releaseLook();
+  });
+  lookLayer.addEventListener('pointercancel', event => {
+    if (event?.pointerId === lookPointerId) releaseLook();
+  });
+  lookLayer.addEventListener('lostpointercapture', event => {
+    if (event?.pointerId === lookPointerId) releaseLook();
+  });
+
+  resetTouchInputs = () => {
+    releaseStick();
+    finishAct(false);
+    for (const cancel of tapCancellers) cancel();
+    releaseLook();
+  };
+
+  const markTouch = () => {
+    lastTouchAt = Date.now();
+    setTouchMode(true);
+  };
+  const detectPointer = event => {
+    if (event?.pointerType === 'touch') {
+      markTouch();
+      return;
+    }
+    if (event?.pointerType === 'mouse' && Date.now() - lastTouchAt >= 700) setTouchMode(false);
+  };
+  window.addEventListener('pointerdown', detectPointer, { passive: true, capture: true });
+  window.addEventListener('pointermove', detectPointer, { passive: true, capture: true });
+  document.addEventListener('touchstart', markTouch, { passive: true, capture: true });
+  window.addEventListener('keydown', () => setTouchMode(false), { passive: true, capture: true });
+  window.addEventListener('blur', () => resetTouchInputs?.(), { passive: true, capture: true });
+
+  const initiallyTouch = (typeof navigator !== 'undefined' && finite(navigator.maxTouchPoints, 0) > 0)
+    || (typeof window !== 'undefined' && 'ontouchstart' in window);
+  setTouchMode(initiallyTouch);
 }
 
 function toggleDebug() {
@@ -1061,6 +1373,7 @@ export function initHUD(ctx) {
     buildToasts();
     buildScreens();
     buildDebug(ctxRef?.layout);
+    buildTouchControls();
     addEventListener('keydown', onKeyDown);
     document.addEventListener('pointerlockchange', onPointerLockChange);
     wireBus();
