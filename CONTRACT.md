@@ -362,3 +362,48 @@ RESUME" overlay must never appear.
 **Layout.** All touch controls scale with `vmin`, sit inside `env(safe-area-inset-*)`,
 and must not overlap the ticket rail, stat strip, meter or cup chip in either
 orientation from 360x640 up.
+
+## 10. RENDER PIPELINE (added after a visual-quality comparison)
+The game looked flat next to commercial coffee sims. The cause was not
+geometry count — it was that metals had nothing to reflect, emissives did not
+bloom, nothing had contact shadows, and every surface had a single uniform
+roughness. This section adds a render pipeline to fix that without a single
+external asset.
+
+**Ownership.** `src/gfx/render.js` (new) owns the environment map and the
+post-processing chain. `src/gfx/materials.js` and `src/gfx/textures.js` own
+PBR inputs. `src/main.js` owns wiring only.
+
+### src/gfx/render.js
+```
+export function buildEnvironment(ctx)   // -> THREE.Texture, a PMREM-prefiltered
+                                        // procedural room. Assign to scene.environment.
+export function createRenderPipeline(ctx)
+  -> { render(dt), resize(w, h), setQuality(name), quality, composer, dispose() }
+```
+`setQuality('high'|'medium'|'low')`. Coarse-pointer devices start at 'low'.
+`render()` replaces `renderer.render(scene, camera)` everywhere, including in
+`ctx.step()`. If this module fails to load, main.js falls back to plain
+rendering — the game must never go black because a post pass threw.
+
+**Vendored addons available** (`three/addons/...`): EffectComposer, RenderPass,
+ShaderPass, MaskPass, OutputPass, UnrealBloomPass, SAOPass, SSAOPass, SMAAPass,
+Reflector, SimplexNoise, and their shaders. Nothing else may be fetched.
+
+**Budget.** The pipeline must hold 60 fps at 1600x900 on an M-series laptop at
+'high', and must not drop the phone below 30 fps at 'low' — where the honest
+answer is usually no SAO and no bloom, just tone mapping and the environment
+map, which is where most of the gain is anyway.
+
+### Environment map
+A procedural room built in code — bright ceiling band, warm floor bounce, a
+cool window wall, and a few bright rectangles standing in for the ceiling slot
+lights — rendered to a cube and prefiltered through `PMREMGenerator`. This is
+the single highest-value change in this section: chrome, steel and glass
+currently have nothing to reflect and therefore read as grey plastic.
+
+### Materials must then earn it
+Every metal needs a real `metalness` (0.9+) with low `roughness` and an
+`envMapIntensity`; every large flat surface needs roughness variation from a
+procedural map, or it reads as vinyl. Uniform roughness is what makes a scene
+look like programmer art.
