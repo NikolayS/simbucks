@@ -684,24 +684,65 @@ function buildCupChip() {
 }
 
 function cupContents(cup) {
-  const source = cup?.contents ?? cup?.items ?? cup?.parts ?? cup?.steps ?? [];
-  if (!Array.isArray(source)) return [];
-  const result = [];
-  for (const item of source) {
-    if (typeof item === 'string') {
-      const text = item.trim();
-      if (text) result.push(text);
-      continue;
+  let source;
+  let sourceIsArray;
+  try {
+    source = cup?.contents ?? cup?.items ?? cup?.parts ?? cup?.steps ?? [];
+    sourceIsArray = Array.isArray(source);
+  }
+  catch (error) { return []; }
+
+  if (sourceIsArray) {
+    try {
+      const result = [];
+      for (const item of source) {
+        if (typeof item === 'string') {
+          const text = item.trim();
+          if (text) result.push(text);
+          continue;
+        }
+        if (!item || typeof item !== 'object') continue;
+        const label = renderable(item?.name ?? item?.id ?? item?.station, '');
+        if (!label) continue;
+        const count = item?.n ?? item?.count;
+        const param = item?.param;
+        if (typeof count === 'number' && Number.isFinite(count)) result.push(`${label} x${count}`);
+        else if (typeof param === 'number' && Number.isFinite(param)) {
+          result.push(/milk|steam/i.test(label) ? `${label} ${param}°` : `${label} x${param}`);
+        } else if (renderable(param, '')) result.push(`${label} ${renderable(param)}`);
+        else result.push(label);
+      }
+      return result;
     }
-    if (!item || typeof item !== 'object') continue;
-    const label = renderable(item?.name ?? item?.id ?? item?.station, '');
-    if (!label) continue;
-    const count = item?.n ?? item?.count;
-    const param = item?.param;
-    if (typeof count === 'number' && Number.isFinite(count)) result.push(`${label} x${count}`);
-    else if (typeof param === 'number' && Number.isFinite(param)) {
-      result.push(/milk|steam/i.test(label) ? `${label} ${param}°` : `${label} x${param}`);
-    } else if (renderable(param, '')) result.push(`${label} ${renderable(param)}`);
+    catch (error) { return []; }
+  }
+
+  if (!source || typeof source !== 'object') return [];
+  const result = [];
+  const ingredients = [
+    ['espresso', 'espresso'],
+    ['coldBrew', 'cold brew'],
+    ['milk', 'milk'],
+    ['foam', 'foam'],
+    ['syrup', 'syrup'],
+    ['mocha', 'mocha'],
+    ['matcha', 'matcha'],
+    ['chai', 'chai'],
+    ['tea', 'tea'],
+    ['ice', 'ice'],
+    ['water', 'water'],
+  ];
+  for (const [key, label] of ingredients) {
+    let value;
+    try { value = source[key]; }
+    catch (error) { continue; }
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue;
+    if (key === 'espresso') {
+      const shots = Math.round(value);
+      result.push(`${shots} ${shots === 1 ? 'shot' : 'shots'}`);
+    } else if (key === 'syrup') {
+      result.push(`${value} ${value === 1 ? 'pump' : 'pumps'}`);
+    } else if (key === 'ice') result.push(`${value} ice`);
     else result.push(label);
   }
   return result;
@@ -737,9 +778,12 @@ function renderCup(cup) {
   nodes.cupBadge.hidden = !lidded;
   writeText(nodes.cupSize, renderable(cup?.size, 'CUP').toUpperCase());
   const foam = cupFoam(cup);
+  const cupContentItems = cupContents(cup);
   const contents = [
     ...(foam ? [{ label: foam, className: 'sb-cup-content sb-foam-chip' }] : []),
-    ...cupContents(cup).map(item => ({ label: item, className: 'sb-cup-content' })),
+    ...cupContentItems
+      .filter(item => !foam || item !== 'foam')
+      .map(item => ({ label: item, className: 'sb-cup-content' })),
   ];
   nodes.cupContents.replaceChildren();
   const shown = contents.slice(0, 6);
@@ -1061,6 +1105,15 @@ function buildTouchControls() {
   let actPointerId = null;
   let actHoldTimer = 0;
   let actHolding = false;
+
+  const preventNativeTouch = event => {
+    if (!touchMode) return;
+    event.preventDefault?.();
+  };
+  for (const node of [stick, act, drop, lid, lookLayer]) {
+    node.addEventListener('touchstart', preventNativeTouch, { passive: false });
+    node.addEventListener('touchmove', preventNativeTouch, { passive: false });
+  }
 
   const releaseCapture = (node, pointerId) => {
     if (pointerId == null) return;
