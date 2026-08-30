@@ -1,5 +1,6 @@
 .sb-hud {
   --sb-coral: #E2593C;
+  --sb-coral-text: #F2977E;
   --sb-green: #00704A;
   --sb-warn: #E0A526;
   --sb-bad: #C0392B;
@@ -74,7 +75,7 @@
   padding: clamp(6px, .55vmin, 10px) clamp(8px, .7vw, 13px);
   border-left: 2px solid var(--sb-coral);
   border-radius: 0 6px 6px 0;
-  background: rgba(11, 12, 14, .66);
+  background: rgba(11, 12, 14, .9);
   backdrop-filter: blur(6px);
   box-shadow: var(--sb-shadow);
   opacity: 0;
@@ -176,9 +177,9 @@
   max-height: clamp(116px, 12vmin, 170px);
   overflow: hidden;
   padding: clamp(8px, .75vmin, 13px) clamp(10px, .9vw, 16px) clamp(12px, 1vmin, 17px);
-  border: 1px solid rgba(255, 255, 255, .18);
+  border: 1px solid rgba(255, 255, 255, .3);
   border-radius: 6px;
-  background: rgba(11, 12, 14, .72);
+  background: rgba(11, 12, 14, .9);
   backdrop-filter: blur(6px);
   box-shadow: var(--sb-shadow);
   box-sizing: border-box;
@@ -188,7 +189,7 @@
 .sb-ticket.sb-is-front {
   width: calc(100% + clamp(5px, .5vw, 9px));
   border-left: 2px solid var(--sb-coral);
-  background: rgba(11, 12, 14, .84);
+  background: rgba(11, 12, 14, .9);
 }
 
 .sb-ticket-in {
@@ -207,7 +208,7 @@
 
 .sb-ticket-customer {
   overflow: hidden;
-  color: rgba(255, 255, 255, .72);
+  color: rgba(255, 255, 255, .86);
   font-size: clamp(9px, .65vw, 12px);
   font-weight: 700;
   letter-spacing: .14em;
@@ -217,7 +218,7 @@
 }
 
 .sb-is-front .sb-ticket-customer {
-  color: var(--sb-coral);
+  color: var(--sb-coral-text);
 }
 
 .sb-ticket-drink {
@@ -244,9 +245,9 @@
 .sb-cup-content,
 .sb-more-orders {
   padding: clamp(2px, .16vmin, 3px) clamp(5px, .36vw, 7px);
-  border: 1px solid rgba(255, 255, 255, .28);
+  border: 1px solid rgba(255, 255, 255, .38);
   border-radius: 3px;
-  color: rgba(255, 255, 255, .72);
+  color: rgba(255, 255, 255, .86);
   font-size: clamp(9px, .62vw, 11px);
   line-height: 1.1;
   text-transform: lowercase;
@@ -254,7 +255,7 @@
 }
 
 .sb-foam-chip {
-  border-color: rgba(255, 255, 255, .42);
+  border-color: rgba(255, 255, 255, .52);
   color: var(--sb-paper);
 }
 
@@ -301,7 +302,7 @@
   width: clamp(320px, 34vw, 560px);
   padding: clamp(8px, .8vmin, 14px);
   border-radius: 6px;
-  background: rgba(11, 12, 14, .72);
+  background: rgba(11, 12, 14, .9);
   backdrop-filter: blur(6px);
   box-shadow: var(--sb-shadow);
   transform: translateX(-50%);
@@ -459,10 +460,10 @@
 .sb-stat-strip {
   display: flex;
   align-items: stretch;
-  border: 1px solid rgba(255, 255, 255, .15);
+  border: 1px solid rgba(255, 255, 255, .3);
   border-top: 2px solid var(--sb-coral);
   border-radius: 6px;
-  background: rgba(11, 12, 14, .76);
+  background: rgba(11, 12, 14, .9);
   backdrop-filter: blur(6px);
   box-shadow: var(--sb-shadow);
   transition: background-color 140ms ease;
@@ -494,7 +495,7 @@
 }
 
 .sb-stat-label {
-  color: rgba(255, 255, 255, .62);
+  color: rgba(255, 255, 255, .86);
   font-size: clamp(8px, .52vw, 10px);
   font-weight: 700;
   letter-spacing: .13em;
@@ -542,7 +543,7 @@
 .sb-hearts {
   display: flex;
   gap: clamp(4px, .36vw, 7px);
-  color: var(--sb-coral);
+  color: var(--sb-coral-text);
 }
 
 .sb-heart.sb-is-lost {
@@ -586,10 +587,10 @@
   gap: clamp(10px, .9vw, 16px);
   width: clamp(230px, 19vw, 340px);
   padding: clamp(9px, .9vmin, 15px);
-  border: 1px solid rgba(255, 255, 255, .18);
+  border: 1px solid rgba(255, 255, 255, .3);
   border-left: 2px solid var(--sb-coral);
   border-radius: 6px;
-  background: rgba(11, 12, 14, .74);
+  background: rgba(11, 12, 14, .9);
   backdrop-filter: blur(6px);
   box-shadow: var(--sb-shadow);
   box-sizing: border-box;
@@ -703,7 +704,7 @@
   max-width: 100%;
   padding: clamp(8px, .72vmin, 12px) clamp(12px, 1vw, 19px);
   border-radius: 0 6px 6px 0;
-  background: rgba(11, 12, 14, .82);
+  background: rgba(11, 12, 14, .9);
   backdrop-filter: blur(6px);
   box-shadow: var(--sb-shadow);
   font-size: clamp(11px, .78vw, 15px);
@@ -737,7 +738,7 @@
 .sb-toast-count {
   flex: 0 0 auto;
   margin-left: clamp(7px, .6vw, 11px);
-  color: var(--sb-coral);
+  color: var(--sb-coral-text);
 }
 
 .sb-toast-bump {
@@ -1188,7 +1189,7 @@
 }
 
 @keyframes sb-heart-flash {
-  0%, 100% { background: rgba(11, 12, 14, .76); }
+  0%, 100% { background: rgba(11, 12, 14, .9); }
   35% { background: rgba(192, 57, 43, .92); }
 }
 
