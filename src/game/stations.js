@@ -873,6 +873,11 @@ export function createStations(context) {
   }
 
   function recipeForOrder(order) {
+    // The ticket's own steps win: orders.js applies modifiers there, so a Caramel Macchiato whose
+    // base recipe says 2 pumps may actually be ticketed for 1 or 3, and a syrup-free drink can
+    // gain a syrupRack step outright. Require a non-empty array — an empty one would silently
+    // mask the base recipe and leave the meter with no target at all.
+    if (Array.isArray(order?.steps) && order.steps.length > 0) return order.steps;
     if (Array.isArray(order?.drink?.recipe)) return order.drink.recipe;
     if (Array.isArray(order?.recipe)) return order.recipe;
     if (typeof order?.drink !== 'string' || !Array.isArray(ctx.menu?.DRINKS)) return null;

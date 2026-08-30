@@ -67,9 +67,11 @@ export function buildCustomers(ctx) {
   const menuX = (finite(menuPanel.x0) + finite(menuPanel.x1)) * 0.5;
   const orderN = Math.max(0, Math.floor(finite(orderCfg.n)));
   const configuredPickupN = Math.max(0, Math.floor(finite(pickupCfg.n)));
+  // Use every pickup slot the layout offers, up to the merch shelf. Standing at
+  // the guard rail's west edge is fine; standing inside its footprint is not.
   let pickupN = 0;
   while (pickupN < configuredPickupN
-      && finite(pickupCfg.x) + finite(pickupCfg.dx) * pickupN + 0.40 < finite(railB.x0, Infinity)) {
+      && finite(pickupCfg.x) + finite(pickupCfg.dx) * pickupN <= finite(railB.x0, Infinity)) {
     pickupN++;
   }
   const orderZ = finite(orderCfg.z, MIN_PUBLIC_Z);

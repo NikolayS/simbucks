@@ -28,21 +28,21 @@ const MAX_YAW_RATE = 4.0;
 const BUBBLE_LIFE = 2.5;
 const BUBBLE_POP = 0.12;
 const BUBBLE_FADE = 0.45;
-const ADULT_AUTHORED_HEIGHT = 1.785;
-const CHILD_AUTHORED_HEIGHT = 1.285;
+const ADULT_AUTHORED_HEIGHT = 1.845;
+const CHILD_AUTHORED_HEIGHT = 1.335;
 
-// Module scratch is shared because updates run serially on the main thread.
-const _v1 = new THREE.Vector3();
-const _v2 = new THREE.Vector3();
+let contextRandomFallbackCounter = 0;
 
-// Safe corridor loops use only coordinates not represented by layout.js.
+// Safe corridor loops use only genuinely open terminal floor.
 const BASE_PATHS = [
-  [-24, -8, -4, -8, 12, -8, 12, 10, 0, 10, -24, 10],
-  [11, -8, 25, -8, 25, 12, 18, 12, 11, 12],
-  [-27, -9, -22, -9, -22, 13, -27, 13],
-  [-8, 5.2, 2, 5.2, 16, 5.2, 25, 8, 25, 12, -8, 12],
-  [-8, -9, 8, -9, 9, -6, 0, -4.8, -8, -4.8],
+  [-8, 9, 26, 9, 26, 13, -8, 13],
+  [-8, -8, 26, -8, 26, -4.5, -8, -4.5],
+  [10, -8, 25, -8, 25, 12, 10, 12],
+  [-26, -0.5, -22, -0.5, -22, 13, -26, 13],
+  [9, 5, 26, 5, 26, 13, 9, 13],
 ];
+
+const SAFE_FALLBACK_PATH = [10, -8, 26, -8, 26, -5, 10, -5];
 
 // ---------------------------------------------------------------------------
 // MATERIALS
@@ -145,9 +145,10 @@ function contextRandom(ctx) {
     const value = ctx?.rng?.();
     if (Number.isFinite(value)) return clamp(value, 0, 0.999999999);
   } catch (_) {
-    // The fixed fallback keeps even a partial context deterministic.
+    // The deterministic fallback below keeps partial contexts usable.
   }
-  return 0.417213;
+  contextRandomFallbackCounter = (contextRandomFallbackCounter + 1) >>> 0;
+  return ((0x6AC690C5 + Math.imul(contextRandomFallbackCounter, 0x9E3779B9)) >>> 0) / 4294967296;
 }
 
 function addMesh(parent, geometry, material, name, x, y, z, sx, sy, sz, casts) {
@@ -190,7 +191,8 @@ function createPerson(ctx, options) {
 
   const legThigh = isChild ? 0.25 : 0.40;
   const legShin = isChild ? 0.27 : 0.42;
-  const hipHeight = legThigh + legShin;
+  const footHeight = isChild ? 0.05 : 0.06;
+  const hipHeight = legThigh + legShin + footHeight;
   const torsoHeight = isChild ? 0.38 : 0.50;
   const spineRise = isChild ? 0.07 : 0.09;
   const neckLength = isChild ? 0.055 : 0.08;
@@ -389,12 +391,12 @@ function createPerson(ctx, options) {
     limbWidth, legShin, limbWidth, shadowRig,
   );
   addMesh(
-    kneeL, BOX_GEO, rubberMat, 'footL', 0, -legShin - 0.015, 0.055,
-    limbWidth * 1.2, 0.06, 0.17, false,
+    kneeL, BOX_GEO, rubberMat, 'footL', 0, -legShin - footHeight * 0.5 + 0.02, 0.055,
+    limbWidth * 1.2, footHeight, 0.17, false,
   );
   addMesh(
-    kneeR, BOX_GEO, rubberMat, 'footR', 0, -legShin - 0.015, 0.055,
-    limbWidth * 1.2, 0.06, 0.17, false,
+    kneeR, BOX_GEO, rubberMat, 'footR', 0, -legShin - footHeight * 0.5 + 0.02, 0.055,
+    limbWidth * 1.2, footHeight, 0.17, false,
   );
 
   if (role === 'barista') {
@@ -430,7 +432,13 @@ function createPerson(ctx, options) {
   }
   if (role === 'barista') bagType = 'none';
   const bagMat = colourMaterial(TRAVEL_COLOURS[Math.floor(random() * TRAVEL_COLOURS.length)]);
+  const rollerGroupZ = -0.12;
+  const rollerWheelCentreY = -0.295;
+  const rollerWheelRadius = 0.055 * 0.5;
+  const rollerStandingTilt = -Math.PI * 0.10;
   let rollerGroup = null;
+  let rollerStandingY = 0;
+  let rollerSeatedY = 0;
   if (bagType === 'backpack') {
     addMesh(
       spine, BOX_GEO, bagMat, 'backpack', 0, torsoHeight * 0.47, -torsoDepth * 0.66,
@@ -464,12 +472,14 @@ function createPerson(ctx, options) {
   } else if (bagType === 'roller') {
     rollerGroup = new THREE.Object3D();
     rollerGroup.name = 'rollerBag';
-    rollerGroup.position.set(0.24, -0.47, -0.12);
-    rollerGroup.rotation.x = -Math.PI * 0.10;
+    rollerStandingY = rollerGroundedY(0, 0, 0, 0.08, rollerStandingTilt);
+    rollerSeatedY = rollerStandingY;
+    rollerGroup.position.set(0.24, rollerStandingY, rollerGroupZ);
+    rollerGroup.rotation.x = rollerStandingTilt;
     handR.add(rollerGroup);
     addMesh(rollerGroup, BOX_GEO, bagMat, 'rollerCase', 0, 0, 0, 0.36, 0.55, 0.22, false);
-    const wheelL = addMesh(rollerGroup, LIMB_GEO, rubberMat, 'rollerWheelL', -0.13, -0.295, 0, 0.055, 0.035, 0.055, false);
-    const wheelR = addMesh(rollerGroup, LIMB_GEO, rubberMat, 'rollerWheelR', 0.13, -0.295, 0, 0.055, 0.035, 0.055, false);
+    const wheelL = addMesh(rollerGroup, LIMB_GEO, rubberMat, 'rollerWheelL', -0.13, rollerWheelCentreY, 0, 0.055, 0.035, 0.055, false);
+    const wheelR = addMesh(rollerGroup, LIMB_GEO, rubberMat, 'rollerWheelR', 0.13, rollerWheelCentreY, 0, 0.055, 0.035, 0.055, false);
     wheelL.rotation.z = HALF_PI;
     wheelR.rotation.z = HALF_PI;
     addMesh(rollerGroup, BOX_GEO, chromeMat, 'rollerHandleL', -0.09, 0.38, -0.03, 0.016, 0.42, 0.016, false);
@@ -531,11 +541,34 @@ function createPerson(ctx, options) {
   }
   const workOffset = random() * workTotal;
   const wipePasses = random() < 0.5 ? 2 : 3;
+  let sitPhi = 0;
 
   function seatRootY() {
     const scaleY = Math.abs(group.scale.y) > 0.0001 ? group.scale.y : personScale;
     const seatHeight = Number.isFinite(group.userData.seatHeight) ? group.userData.seatHeight : 0.45;
     return (seatHeight - group.position.y) / scaleY - hipHeight;
+  }
+
+  function seatedLegPhi() {
+    const scaleY = Math.abs(group.scale.y) > 0.0001 ? group.scale.y : personScale;
+    const seatHeight = Number.isFinite(group.userData.seatHeight) ? group.userData.seatHeight : 0.45;
+    const thighWorld = legThigh * scaleY;
+    const verticalReach = seatHeight - group.position.y - (legShin + footHeight) * scaleY;
+    const sine = thighWorld > 0.0001 ? clamp(verticalReach / thighWorld, -1, 1) : 0;
+    return clamp(Math.asin(sine), -0.30, 0.45);
+  }
+
+  function rollerGroundedY(rootLocalY, spineX, shoulderX, elbowX, rollerTilt) {
+    const scaleY = Math.abs(group.scale.y) > 0.0001 ? group.scale.y : personScale;
+    const upperX = spineX + shoulderX;
+    const armX = upperX + elbowX;
+    const fixedY = rootLocalY + hipHeight + spineRise + torsoHeight * 0.82 * Math.cos(spineX)
+      - upperLength * Math.cos(upperX)
+      - foreLength * Math.cos(armX)
+      - rollerGroupZ * Math.sin(armX)
+      + rollerWheelCentreY * Math.cos(armX + rollerTilt)
+      - rollerWheelRadius;
+    return (-group.position.y / scaleY - fixedY) / Math.cos(armX);
   }
 
   function finishWalk() {
@@ -585,6 +618,10 @@ function createPerson(ctx, options) {
     if (name === 'sit') {
       targetActive = false;
       root.position.y = seatRootY();
+      sitPhi = seatedLegPhi();
+      if (rollerGroup) rollerSeatedY = rollerGroundedY(root.position.y, 0.08, 0.06, 0.12, 0);
+    } else if (rollerGroup) {
+      rollerStandingY = rollerGroundedY(0, 0, 0, 0.08, rollerStandingTilt);
     }
   }
 
@@ -809,8 +846,8 @@ function createPerson(ctx, options) {
     let kneeRX = 0;
     let headYaw = lookYaw;
     let headPitch = lookPitch;
-    let rollerY = -0.47;
-    let rollerTilt = -Math.PI * 0.10;
+    let rollerY = rollerStandingY;
+    let rollerTilt = rollerStandingTilt;
 
     if (pose === 'walk') {
       const strideLength = 0.75 * heightMetres / 1.75;
@@ -836,16 +873,16 @@ function createPerson(ctx, options) {
       }
     } else if (pose === 'sit') {
       rootY = seatRootY();
-      thighLX = -HALF_PI;
-      thighRX = -HALF_PI;
-      kneeLX = HALF_PI;
-      kneeRX = HALF_PI;
+      thighLX = -HALF_PI + sitPhi;
+      thighRX = -HALF_PI + sitPhi;
+      kneeLX = HALF_PI - sitPhi;
+      kneeRX = HALF_PI - sitPhi;
       spineLean = 0.08;
       shoulderLX = -0.76;
       elbowLX = -0.63;
       shoulderRX = 0.06;
       elbowRX = 0.12;
-      rollerY = -0.105;
+      rollerY = rollerSeatedY;
       rollerTilt = 0;
     } else if (pose === 'work') {
       workTime += dt;
@@ -1036,6 +1073,10 @@ function crowdKeepouts(layout) {
   const merch = layout.terminal.merch;
   const tables = layout.terminal.tables;
   const tableSize = layout.terminal.tableSize;
+  const aelia = layout.terminal.aelia;
+  const inMotion = layout.terminal.inMotion;
+  const rearWall = layout.terminal.rearWall;
+  const floor = layout.terminal.floor;
   const orderEnd = order.x + order.dx * (order.n - 1);
   const pickupEnd = pickup.x + pickup.dx * (pickup.n - 1);
   return [
@@ -1044,6 +1085,9 @@ function crowdKeepouts(layout) {
     { x0: Math.min(pickup.x, pickupEnd) - 0.7, x1: Math.max(pickup.x, pickupEnd) + 0.5, z0: pickup.z - 0.5, z1: pickup.z + 0.6 },
     { x0: merch.x0 - 0.4, x1: merch.x1 + 0.4, z0: merch.z0 - 0.4, z1: merch.z1 + 0.4 },
     { x0: seating.x0 - 0.5, x1: seating.x1 + 0.5, z0: seating.z0 - 0.5, z1: seating.z1 + 0.5 },
+    { x0: aelia.x0 - 0.6, x1: aelia.x1 + 0.6, z0: aelia.z0 - 0.6, z1: aelia.z1 + 0.6 },
+    { x0: inMotion.x0 - 0.6, x1: inMotion.x1 + 0.6, z0: rearWall, z1: rearWall + 3.0 },
+    { x0: floor.x0, x1: floor.x1, z0: floor.z0, z1: rearWall + 2.0 },
     {
       x0: tables[0].x - tableSize.w * 0.5 - 0.3,
       x1: tables[0].x + tableSize.w * 0.5 + 0.3,
@@ -1084,15 +1128,42 @@ function makeWalkerPath(templateIndex, random, boxes, rail) {
   }
   points = [];
   for (let i = 0; i < base.length; i += 2) points.push(new THREE.Vector3(base[i], 0, base[i + 1]));
-  return points;
+  if (pathIsSafe(points, boxes, rail)) return points;
+  points = [];
+  for (let i = 0; i < SAFE_FALLBACK_PATH.length; i += 2) {
+    points.push(new THREE.Vector3(SAFE_FALLBACK_PATH[i], 0, SAFE_FALLBACK_PATH[i + 1]));
+  }
+  if (pathIsSafe(points, boxes, rail)) return points;
+  throw new Error('No safe walker path available');
 }
 
 function offsetPairedPath(source, offset, boxes, rail) {
   const points = [];
-  for (let i = 0; i < source.length; i += 1) points.push(new THREE.Vector3(source[i].x + offset, 0, source[i].z));
+  for (let i = 0; i < source.length; i += 1) {
+    const previous = source[(i + source.length - 1) % source.length];
+    const next = source[(i + 1) % source.length];
+    const dx = next.x - previous.x;
+    const dz = next.z - previous.z;
+    const inverseLength = 1 / Math.max(0.000001, Math.sqrt(dx * dx + dz * dz));
+    points.push(new THREE.Vector3(
+      source[i].x - dz * inverseLength * offset,
+      0,
+      source[i].z + dx * inverseLength * offset,
+    ));
+  }
   if (pathIsSafe(points, boxes, rail)) return points;
-  for (let i = 0; i < points.length; i += 1) points[i].x = source[i].x - offset;
-  return points;
+  for (let i = 0; i < points.length; i += 1) {
+    const previous = source[(i + source.length - 1) % source.length];
+    const next = source[(i + 1) % source.length];
+    const dx = next.x - previous.x;
+    const dz = next.z - previous.z;
+    const inverseLength = 1 / Math.max(0.000001, Math.sqrt(dx * dx + dz * dz));
+    points[i].x = source[i].x + dz * inverseLength * offset;
+    points[i].z = source[i].z - dx * inverseLength * offset;
+  }
+  if (pathIsSafe(points, boxes, rail)) return points;
+  if (pathIsSafe(source, boxes, rail)) return source;
+  throw new Error('Paired walker source path is unsafe');
 }
 
 function emptyBuilder() {

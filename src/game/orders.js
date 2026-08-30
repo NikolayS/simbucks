@@ -467,7 +467,10 @@ function scoreOrderSafe(order, built) {
     || null;
   const madeId = drinkId(explicitBuiltDrink);
   const ticketDrink = getDrink(ticketId);
-  const ticketSteps = Array.isArray(order?.steps) ? order.steps
+  // An empty steps array is not a ticket with no steps — it is a ticket that was
+  // never filled in, so fall back to the recipe rather than calling every real
+  // step in the cup an extra.
+  const ticketSteps = Array.isArray(order?.steps) && order.steps.length ? order.steps
     : ticketDrink ? recipeFor(ticketDrink, order?.size) : [];
   const builtSteps = built.steps;
   const wrongDrink = madeDrink => {

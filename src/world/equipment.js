@@ -12,6 +12,12 @@ const SINK_CUTOUT_WIDTH = 0.46;
 const SINK_CUTOUT_DEPTH = 0.34;
 const ICE_WELL_CUTOUT_WIDTH = 0.38;
 const ICE_WELL_CUTOUT_DEPTH = 0.30;
+const UNDER_COUNTER_BAY_X0 = -4.60;
+const UNDER_COUNTER_BAY_X1 = 3.40;
+const UNDER_COUNTER_BAY_Z0 = -2.32;
+const UNDER_COUNTER_BAY_Z1 = -1.88;
+const UNDER_COUNTER_BAY_FLOOR_Y = 0.125;
+const UNDER_COUNTER_BAY_OPENING_TOP_Y = 0.90;
 
 export function getStationAnchors() {
   const copy = {};
@@ -216,6 +222,7 @@ export function buildEquipment(ctx) {
 
   const ledPositions = { green: [], amber: [], red: [] };
   const clearParts = [];
+  const blackAccentParts = [];
   const interactableObjects = {};
   let ledMaterial = null;
   stationAnchors = {};
@@ -294,14 +301,10 @@ export function buildEquipment(ctx) {
     const body = addMesh(station, 'equip.grinder.body', chromeGeometry, materials.chrome, true, true);
     interactableObjects.grinder = body;
 
-    addMesh(
-      station,
-      'equip.grinder.hopper',
-      new THREE.CylinderGeometry(0.1, 0.063, 0.19, 16, 1, true),
-      materials.glass,
-      true,
-      false,
-    ).position.y = L.kiosk.backTop + 0.425;
+    clearParts.push({
+      geometry: new THREE.CylinderGeometry(0.1, 0.063, 0.19, 16, 1, true),
+      matrix: matrix(P.x, L.kiosk.backTop + 0.425, P.z),
+    });
     const beanMap = texClone('beans', 2, 1);
     const beanMaterial = matWith('espresso', {
       map: beanMap,
@@ -318,11 +321,10 @@ export function buildEquipment(ctx) {
     );
     beans.position.y = L.kiosk.backTop + 0.39;
 
-    const chuteGeometry = mergeGeometry([
-      { geometry: new THREE.BoxGeometry(0.06, 0.055, 0.13), matrix: matrix(0, L.kiosk.backTop + 0.265, 0.11, -0.34) },
-      { geometry: new THREE.CylinderGeometry(0.027, 0.023, 0.05, 12), matrix: matrix(0, L.kiosk.backTop + 0.205, 0.18) },
-    ]);
-    addMesh(station, 'equip.grinder.chute', chuteGeometry, materials.black, true, false);
+    blackAccentParts.push(
+      { geometry: new THREE.BoxGeometry(0.06, 0.055, 0.13), matrix: matrix(P.x, L.kiosk.backTop + 0.265, P.z + 0.11, -0.34) },
+      { geometry: new THREE.CylinderGeometry(0.027, 0.023, 0.05, 12), matrix: matrix(P.x, L.kiosk.backTop + 0.205, P.z + 0.18) },
+    );
     stationAnchors.grinder = new THREE.Vector3(P.x, L.kiosk.backTop + 0.165, P.z + 0.18);
     ledPositions.amber.push([P.x + 0.052, L.kiosk.backTop + 0.30, P.z + 0.076]);
   }
@@ -343,11 +345,25 @@ export function buildEquipment(ctx) {
     const cupRailFrontZ = bodyFrontZ - 0.04;
     const dripTrayDepth = 0.30;
     const dripTrayZ = bodyFrontZ - dripTrayDepth * 0.5 - 0.01;
+    const body = addMesh(
+      station,
+      'equip.espresso.lowerBody',
+      new THREE.BoxGeometry(1.16, 0.33, bodyDepth),
+      materials.steel,
+      true,
+      true,
+    );
+    body.position.set(0, L.kiosk.backTop + 0.175, bodyZ);
+    interactableObjects.espresso = body;
+
     const chromeParts = [
-      { geometry: new THREE.BoxGeometry(1.16, 0.39, bodyDepth), matrix: matrix(0, L.kiosk.backTop + 0.205, bodyZ) },
-      { geometry: new THREE.CylinderGeometry(0.105, 0.105, 1.08, 16), matrix: matrix(0, L.kiosk.backTop + 0.39, bodyZ - 0.015, 0, 0, Math.PI / 2, 1, 1, 1.72) },
+      { geometry: new THREE.CylinderGeometry(0.13, 0.13, 1.00, 20), matrix: matrix(0, L.kiosk.backTop + 0.42, bodyZ - 0.02, 0, 0, Math.PI / 2, 1, 1, 1.55) },
       { geometry: new THREE.BoxGeometry(1.08, 0.035, dripTrayDepth), matrix: matrix(0, L.kiosk.backTop + 0.025, dripTrayZ) },
-      { geometry: tube([[-0.49, L.kiosk.backTop + 0.505, cupRailBackZ], [-0.49, L.kiosk.backTop + 0.54, cupRailFrontZ - 0.04], [0, L.kiosk.backTop + 0.54, cupRailFrontZ], [0.49, L.kiosk.backTop + 0.54, cupRailFrontZ - 0.04], [0.49, L.kiosk.backTop + 0.505, cupRailBackZ]], 0.007, 24, 6), matrix: matrix() },
+      { geometry: new THREE.CylinderGeometry(0.007, 0.007, 0.30, 8), matrix: matrix(-0.45, L.kiosk.backTop + 0.585, bodyZ - 0.02, Math.PI / 2) },
+      { geometry: new THREE.CylinderGeometry(0.007, 0.007, 0.30, 8), matrix: matrix(0.45, L.kiosk.backTop + 0.585, bodyZ - 0.02, Math.PI / 2) },
+      { geometry: new THREE.CylinderGeometry(0.007, 0.007, 0.90, 8), matrix: matrix(0, L.kiosk.backTop + 0.585, bodyZ + 0.13, 0, 0, Math.PI / 2) },
+      { geometry: new THREE.CylinderGeometry(0.007, 0.007, 0.04, 8), matrix: matrix(-0.45, L.kiosk.backTop + 0.565, bodyZ - 0.17) },
+      { geometry: new THREE.CylinderGeometry(0.007, 0.007, 0.04, 8), matrix: matrix(0.45, L.kiosk.backTop + 0.565, bodyZ - 0.17) },
     ];
     for (const groupX of P.groups) {
       const x = groupX - P.x;
@@ -364,33 +380,32 @@ export function buildEquipment(ctx) {
         matrix: matrix(x, L.kiosk.backTop + 0.365, gaugeZ, Math.PI / 2),
       });
     }
-    const body = addMesh(
+    addMesh(
       station,
-      'equip.espresso.body',
+      'equip.espresso.upperAndChrome',
       mergeGeometry(chromeParts),
       materials.chrome,
       true,
       true,
     );
-    interactableObjects.espresso = body;
 
-    const blackParts = [
-      { geometry: new THREE.BoxGeometry(1.04, 0.018, topTrayDepth), matrix: matrix(0, L.kiosk.backTop + 0.505, bodyZ) },
-    ];
+    blackAccentParts.push({
+      geometry: new THREE.BoxGeometry(0.94, 0.018, topTrayDepth),
+      matrix: matrix(P.x, L.kiosk.backTop + 0.558, P.z + bodyZ - 0.02),
+    });
     for (const groupX of P.groups) {
       const x = groupX - P.x;
-      blackParts.push({
+      blackAccentParts.push({
         geometry: new THREE.BoxGeometry(0.035, 0.035, 0.25),
-        matrix: matrix(x, L.kiosk.backTop + 0.18, portafilterZ, 0.28),
+        matrix: matrix(P.x + x, L.kiosk.backTop + 0.18, P.z + portafilterZ, 0.28),
       });
     }
     for (let i = -4; i <= 4; i += 1) {
-      blackParts.push({
+      blackAccentParts.push({
         geometry: new THREE.BoxGeometry(0.012, 0.008, dripTrayDepth - 0.03),
-        matrix: matrix(i * 0.105, L.kiosk.backTop + 0.047, dripTrayZ),
+        matrix: matrix(P.x + i * 0.105, L.kiosk.backTop + 0.047, P.z + dripTrayZ),
       });
     }
-    addMesh(station, 'equip.espresso.blackAccents', mergeGeometry(blackParts), materials.black, true, false);
 
     const faceGeometry = new THREE.CylinderGeometry(0.039, 0.039, 0.004, 16);
     const gaugeFaces = new THREE.InstancedMesh(faceGeometry, materials.white, 3);
@@ -422,8 +437,8 @@ export function buildEquipment(ctx) {
       L.kiosk.backTop + 0.075,
       P.z + groupHeadZ + 0.023,
     );
-    ledPositions.green.push([P.x + 0.45, L.kiosk.backTop + 0.365, P.z + gaugeZ + 0.003]);
-    ledPositions.red.push([P.x + 0.49, L.kiosk.backTop + 0.365, P.z + gaugeZ + 0.003]);
+    ledPositions.green.push([P.x + 0.43, L.kiosk.backTop + 0.365, P.z + bodyFrontZ - 0.003]);
+    ledPositions.red.push([P.x + 0.48, L.kiosk.backTop + 0.365, P.z + bodyFrontZ - 0.003]);
   }
 
   // Articulated steam wand and parked stainless milk pitcher.
@@ -514,6 +529,7 @@ export function buildEquipment(ctx) {
     );
     display.position.set(0, L.kiosk.backTop + 0.285, 0.176);
     stationAnchors.superauto = new THREE.Vector3(P.x, L.kiosk.backTop + 0.09, P.z + 0.195);
+    ledPositions.green.push([P.x + 0.11, L.kiosk.backTop + 0.285, P.z + 0.184]);
   }
 
   // Two-tier syrup rack, with six square-shouldered bottles and pump heads.
@@ -590,11 +606,10 @@ export function buildEquipment(ctx) {
     const base = addMesh(station, 'equip.blender.base', blackGeometry, materials.black, true, true);
     interactableObjects.blender = base;
 
-    const jugGeometry = mergeGeometry([
-      { geometry: new THREE.CylinderGeometry(0.068, 0.052, 0.22, 16, 1, true), matrix: matrix(0, L.kiosk.backTop + 0.235, 0) },
-      { geometry: new THREE.ConeGeometry(0.032, 0.055, 3), matrix: matrix(0, L.kiosk.backTop + 0.335, 0.055, Math.PI / 2) },
-    ]);
-    addMesh(station, 'equip.blender.jug', jugGeometry, materials.glass, true, false);
+    clearParts.push(
+      { geometry: new THREE.CylinderGeometry(0.068, 0.052, 0.22, 16, 1, true), matrix: matrix(P.x, L.kiosk.backTop + 0.235, P.z) },
+      { geometry: new THREE.ConeGeometry(0.032, 0.055, 3), matrix: matrix(P.x, L.kiosk.backTop + 0.335, P.z + 0.055, Math.PI / 2) },
+    );
     const controlMaterial = matWith('blackMatte', {
       color: 0x173629,
       emissive: 0x39d47e,
@@ -613,6 +628,9 @@ export function buildEquipment(ctx) {
     stationAnchors.blender = new THREE.Vector3(P.x, L.kiosk.backTop + 0.235, P.z);
     ledPositions.green.push([P.x + 0.052, L.kiosk.backTop + 0.105, P.z + 0.102]);
   }
+
+  addMesh(group, 'equip.clearHoppersAndJugs', mergeGeometry(clearParts), materials.glass, true, false);
+  addMesh(group, 'equip.blackMachineAccents', mergeGeometry(blackAccentParts), materials.black, true, false);
 
   // Recessed ice well with deterministic instanced ice and a resting scoop.
   {
@@ -728,11 +746,12 @@ export function buildEquipment(ctx) {
   // Inner-east cold brew tower; its centreline outlet uses the specified spoutY exactly.
   {
     const P = L.back.coldBrewTap;
-    const station = addStationGroup('coldBrewTap', P.x, P.z);
+    const towerX = L.kiosk.aisle.x1 - 0.10;
+    const station = addStationGroup('coldBrewTap', towerX, P.z);
     const baseY = L.kiosk.counterTop;
     const towerGeometry = mergeGeometry([
       { geometry: new THREE.BoxGeometry(0.18, 0.36, 0.16), matrix: matrix(0, baseY + 0.18, 0) },
-      { geometry: new THREE.CylinderGeometry(0.105, 0.105, 0.035, 16), matrix: matrix(0, baseY + 0.018, 0) },
+      { geometry: new THREE.CylinderGeometry(0.098, 0.098, 0.035, 16), matrix: matrix(0, baseY + 0.018, 0) },
     ]);
     const tower = addMesh(station, 'equip.coldBrewTap.tower', towerGeometry, materials.black, true, true);
     interactableObjects.coldBrewTap = tower;
@@ -742,11 +761,11 @@ export function buildEquipment(ctx) {
       { geometry: new THREE.CylinderGeometry(0.012, 0.01, 0.045, 12), matrix: matrix(outlet.x, outlet.y + 0.0225, outlet.z) },
       { geometry: new THREE.CylinderGeometry(0.013, 0.013, 0.19, 12), matrix: matrix(0, baseY + 0.43, 0.02) },
       { geometry: new THREE.BoxGeometry(0.055, 0.035, 0.035), matrix: matrix(0, baseY + 0.53, 0.02) },
-      { geometry: new THREE.BoxGeometry(0.24, 0.018, 0.18), matrix: matrix(0, baseY + 0.015, 0.22) },
+      { geometry: new THREE.BoxGeometry(0.19, 0.018, 0.18), matrix: matrix(0, baseY + 0.015, 0.22) },
     ]);
     addMesh(station, 'equip.coldBrewTap.spoutAndTray', chromeGeometry, materials.chrome, true, true);
-    stationAnchors.coldBrewTap = new THREE.Vector3(P.x + outlet.x, P.spoutY, P.z + outlet.z);
-    ledPositions.amber.push([P.x + 0.052, baseY + 0.25, P.z + 0.084]);
+    stationAnchors.coldBrewTap = new THREE.Vector3(towerX + outlet.x, P.spoutY, P.z + outlet.z);
+    ledPositions.amber.push([towerX + 0.052, baseY + 0.25, P.z + 0.084]);
   }
 
   // Barista-facing POS and customer-facing card reader.
@@ -851,8 +870,9 @@ export function buildEquipment(ctx) {
     const dressing = new THREE.Group();
     dressing.name = 'equip.underCounter';
     group.add(dressing);
-    const z = L.kiosk.aisle.z0 + 0.05;
-    const floorY = L.kiosk.backTop - L.kiosk.backTop;
+    const z = (UNDER_COUNTER_BAY_Z0 + UNDER_COUNTER_BAY_Z1) * 0.5;
+    const floorY = UNDER_COUNTER_BAY_FLOOR_Y;
+    const bayHeight = UNDER_COUNTER_BAY_OPENING_TOP_Y - floorY;
 
     const bottleProfile = [
       new THREE.Vector2(0.10, 0),
@@ -874,7 +894,7 @@ export function buildEquipment(ctx) {
     const caps = new THREE.InstancedMesh(capGeometry, materials.white, 2);
     caps.name = 'equip.underCounter.waterCaps';
     const dummy = new THREE.Object3D();
-    const waterXs = [L.back.cupStack.x + 0.4, L.back.cupStack.x + 0.8];
+    const waterXs = [UNDER_COUNTER_BAY_X0 + 0.25, UNDER_COUNTER_BAY_X0 + 0.65];
     for (let i = 0; i < waterXs.length; i += 1) {
       dummy.position.set(waterXs[i], floorY, z);
       dummy.rotation.set(0, 0, 0);
@@ -889,73 +909,72 @@ export function buildEquipment(ctx) {
     finishInstances(caps, true, false);
     dressing.add(waterBottles, caps);
 
-    const shelfX = L.back.syrupRack.x - 0.4;
-    const shelfGeometry = mergeGeometry([
+    const shelfX = UNDER_COUNTER_BAY_X0 + 1.65;
+    const shelfParts = [
       { geometry: new THREE.BoxGeometry(0.78, 0.035, 0.30), matrix: matrix(shelfX, floorY + 0.14, z) },
       { geometry: new THREE.BoxGeometry(0.025, 0.30, 0.025), matrix: matrix(shelfX - 0.35, floorY + 0.15, z - 0.12) },
       { geometry: new THREE.BoxGeometry(0.025, 0.30, 0.025), matrix: matrix(shelfX + 0.35, floorY + 0.15, z - 0.12) },
       { geometry: new THREE.BoxGeometry(0.025, 0.30, 0.025), matrix: matrix(shelfX - 0.35, floorY + 0.15, z + 0.12) },
       { geometry: new THREE.BoxGeometry(0.025, 0.30, 0.025), matrix: matrix(shelfX + 0.35, floorY + 0.15, z + 0.12) },
-    ]);
-    addMesh(dressing, 'equip.underCounter.pitcherShelf', shelfGeometry, materials.steel, true, true);
+    ];
     const pitcherProfile = [
       new THREE.Vector2(0.045, 0),
       new THREE.Vector2(0.055, 0.018),
       new THREE.Vector2(0.058, 0.12),
       new THREE.Vector2(0.066, 0.15),
     ];
-    const pitchers = new THREE.InstancedMesh(new THREE.LatheGeometry(pitcherProfile, 12), materials.steel, 5);
-    pitchers.name = 'equip.underCounter.pitchers';
     for (let i = 0; i < 5; i += 1) {
-      dummy.position.set(shelfX - 0.25 + i * 0.125, floorY + 0.158, z);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      pitchers.setMatrixAt(i, dummy.matrix);
+      shelfParts.push({
+        geometry: new THREE.LatheGeometry(pitcherProfile, 12),
+        matrix: matrix(shelfX - 0.25 + i * 0.125, floorY + 0.158, z),
+      });
     }
-    finishInstances(pitchers, true, true);
-    dressing.add(pitchers);
+    addMesh(
+      dressing,
+      'equip.underCounter.pitcherShelfAndPitchers',
+      mergeGeometry(shelfParts),
+      materials.steel,
+      true,
+      true,
+    );
 
-    const boxesX = L.back.superauto.x - 0.4;
+    const boxesX = UNDER_COUNTER_BAY_X1 - 2.55;
     const boxesGeometry = mergeGeometry([
       { geometry: new THREE.BoxGeometry(0.48, 0.24, 0.30), matrix: matrix(boxesX, floorY + 0.12, z) },
       { geometry: new THREE.BoxGeometry(0.44, 0.22, 0.28), matrix: matrix(boxesX + 0.025, floorY + 0.35, z) },
     ]);
     addMesh(dressing, 'equip.underCounter.cupBoxes', boxesGeometry, materials.cardboard, true, true);
 
-    const binX = L.back.sink.x - 0.5;
+    const binX = UNDER_COUNTER_BAY_X1 - 0.25;
     const binGeometry = mergeGeometry([
-      { geometry: new THREE.BoxGeometry(0.40, 0.56, 0.30), matrix: matrix(binX, floorY + 0.28, z) },
+      { geometry: new THREE.BoxGeometry(0.40, Math.min(0.56, bayHeight - 0.19), 0.30), matrix: matrix(binX, floorY + Math.min(0.56, bayHeight - 0.19) * 0.5, z) },
       { geometry: new THREE.CylinderGeometry(0.15, 0.15, 0.37, 12, 1, false, 0, Math.PI), matrix: matrix(binX, floorY + 0.56, z, 0, 0, Math.PI / 2, 1, 1, 1.18) },
     ]);
     addMesh(dressing, 'equip.underCounter.swingBin', binGeometry, materials.black, true, true);
   }
 
-  // Globally batched standby LEDs keep the silhouette-rich machines inexpensive.
-  const ledMaterialByColor = {
-    green: matWith('blackMatte', { color: 0x49d98a, emissive: 0x28d879, emissiveIntensity: 1.7, toneMapped: false }),
-    amber: matWith('blackMatte', { color: 0xffb13b, emissive: 0xff8a18, emissiveIntensity: 1.65, toneMapped: false }),
-    red: matWith('blackMatte', { color: 0xff5a4f, emissive: 0xe52d24, emissiveIntensity: 1.5, toneMapped: false }),
-  };
-  for (const colorName of ['green', 'amber', 'red']) {
-    const positions = ledPositions[colorName];
-    const leds = new THREE.InstancedMesh(
-      new THREE.SphereGeometry(0.011, 10, 6),
-      ledMaterialByColor[colorName],
-      positions.length,
-    );
-    leds.name = `equip.led.${colorName}`;
-    const dummy = new THREE.Object3D();
-    for (let i = 0; i < positions.length; i += 1) {
-      dummy.position.set(...positions[i]);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      leds.setMatrixAt(i, dummy.matrix);
-    }
-    finishInstances(leds, false, false);
-    group.add(leds);
+  // One instance-colored standby LED batch for all stations.
+  const ledColors = { green: 0x49d98a, amber: 0xffb13b, red: 0xff5a4f };
+  const ledEntries = Object.entries(ledPositions)
+    .flatMap(([colorName, positions]) => positions.map((position) => ({ colorName, position })));
+  ledMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+  ownedMaterials.add(ledMaterial);
+  const leds = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(0.011, 10, 6),
+    ledMaterial,
+    ledEntries.length,
+  );
+  leds.name = 'equip.led.standby';
+  const ledDummy = new THREE.Object3D();
+  for (let i = 0; i < ledEntries.length; i += 1) {
+    const { colorName, position } = ledEntries[i];
+    ledDummy.position.set(...position);
+    ledDummy.updateMatrix();
+    leds.setMatrixAt(i, ledDummy.matrix);
+    leds.setColorAt(i, new THREE.Color(ledColors[colorName]));
   }
+  finishInstances(leds, false, false);
+  group.add(leds);
 
   const interactables = [
     { id: 'cupStack', kind: 'station', label: 'Cup Stack', object: interactableObjects.cupStack, hint: 'E to take a cup', hold: false },
@@ -974,8 +993,7 @@ export function buildEquipment(ctx) {
 
   let disposed = false;
   function update(_dt, t) {
-    const material = ledMaterialByColor.green;
-    if ('emissiveIntensity' in material) material.emissiveIntensity = 1.45 + 0.28 * (0.5 + 0.5 * Math.sin(t * 2.2));
+    ledMaterial.color.setScalar(0.82 + 0.18 * (0.5 + 0.5 * Math.sin(t * 2.2)));
   }
 
   function dispose() {
