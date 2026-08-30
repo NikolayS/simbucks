@@ -35,6 +35,25 @@ function reg(name, w, h, drawFn) {
   return texture;
 }
 
+function regData(name, w, h, drawFn) {
+  if (cache.has(name)) return cache.get(name);
+  const canvas = makeCanvas(w, h);
+  let texture;
+  if (canvas) {
+    const g = canvas.getContext('2d');
+    drawFn(g, w, h);
+    texture = new THREE.CanvasTexture(canvas);
+  } else {
+    texture = new THREE.Texture();
+  }
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.anisotropy = 8;
+  texture.needsUpdate = true;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  cache.set(name, texture);
+  return texture;
+}
+
 function mulberry32(seed) {
   let a = seed >>> 0;
   return function seededRandom() {
@@ -48,6 +67,81 @@ function mulberry32(seed) {
 
 function imod(n, m) {
   return ((n % m) + m) % m;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function lattice1D(x, seed) {
+  let n = Math.imul(x, 0x1f123bb5) ^ seed;
+  n = Math.imul(n ^ (n >>> 15), 0x2c1b3c6d);
+  n = Math.imul(n ^ (n >>> 12), 0x297a2d39);
+  return ((n ^ (n >>> 15)) >>> 0) / 4294967295;
+}
+
+function rawNoise1D(x, seed) {
+  const x0 = Math.floor(x);
+  const t0 = x - x0;
+  const t = t0 * t0 * (3 - 2 * t0);
+  const a = lattice1D(x0, seed);
+  const b = lattice1D(x0 + 1, seed);
+  return a + (b - a) * t;
+}
+
+function noise1D(x, seed, period) {
+  const xx = imod(x, period);
+  const t0 = xx / period;
+  const t = t0 * t0 * (3 - 2 * t0);
+  const a = rawNoise1D(xx, seed);
+  const b = rawNoise1D(xx - period, seed);
+  return a + (b - a) * t;
+}
+
+function writeGray(image, i, value) {
+  const byte = Math.round(clamp(value, 0, 1) * 255);
+  image.data[i] = byte;
+  image.data[i + 1] = byte;
+  image.data[i + 2] = byte;
+  image.data[i + 3] = 255;
+}
+
+function modulateGray(g, w, h, factor) {
+  const image = g.getImageData(0, 0, w, h);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const i = (y * w + x) * 4;
+      const value = clamp((image.data[i] / 255) * factor(x, y), 0, 1);
+      writeGray(image, i, value);
+    }
+  }
+  g.putImageData(image, 0, 0);
+}
+
+// Central-difference normal from a tileable height field. `height(x, y)` takes
+// integer pixel coords and returns 0..1. Wrapping keeps the result seamless.
+function normalFromHeight(g, w, h, height, strength) {
+  const heights = new Float32Array(w * h);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) heights[y * w + x] = height(x, y);
+  }
+  const image = g.createImageData(w, h);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const dx = heights[y * w + imod(x + 1, w)] - heights[y * w + imod(x - 1, w)];
+      const dy = heights[imod(y + 1, h) * w + x] - heights[imod(y - 1, h) * w + x];
+      const nx0 = -dx * strength;
+      // The +dy is deliberate: canvas Y runs down while the tangent-space green channel runs up, so a lower height field value reads as a groove.
+      const ny0 = dy * strength;
+      const length = Math.hypot(nx0, ny0, 1);
+      const i = (y * w + x) * 4;
+      image.data[i] = 128 + 127 * (nx0 / length);
+      image.data[i + 1] = 128 + 127 * (ny0 / length);
+      image.data[i + 2] = 128 + 127 / length;
+      image.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(image, 0, 0);
 }
 
 function lattice(x, y, seed, period) {
@@ -87,6 +181,14 @@ function fbm(x, y, seed, octaves = 4, period = 8) {
     frequency *= 2;
   }
   return value / weight;
+}
+
+function tileableFbm(x, y, seed, octaves, period, spanY) {
+  const uy0 = clamp(y / spanY, 0, 1);
+  const uy = uy0 * uy0 * (3 - 2 * uy0);
+  const a = fbm(x, y, seed, octaves, period);
+  const b = fbm(x, y - spanY, seed, octaves, period);
+  return a + (b - a) * uy;
 }
 
 function roundRect(g, x, y, w, h, r) {
@@ -384,7 +486,7 @@ function drawWorktop(g, w, h) {
     }
   }
   g.putImageData(image, 0, 0);
-  const colors = ['rgba(112,112,108,0.28)', 'rgba(176,142,104,0.26)', 'rgba(69,65,61,0.32)'];
+  const colors = ['rgba(112,112,108,0.44)', 'rgba(176,142,104,0.40)', 'rgba(69,65,61,0.50)'];
   for (let i = 0; i < 3600; i += 1) {
     const x = rng() * w;
     const y = rng() * h;
@@ -396,6 +498,278 @@ function drawWorktop(g, w, h) {
       g.fill();
     });
   }
+  g.fillStyle = 'rgba(150,146,138,0.13)';
+  for (let i = 0; i < 260; i += 1) {
+    const x = rng() * w;
+    const y = rng() * h;
+    const r = 1.6 + rng() * 2.4;
+    dotWrapped(g, x, y, r, w, h, (xx, yy) => {
+      g.beginPath();
+      g.arc(xx, yy, r, 0, Math.PI * 2);
+      g.fill();
+    });
+  }
+}
+
+function drawOakRough(g, w, h) {
+  const rng = mulberry32(0x0A5B011);
+  g.fillStyle = 'rgb(168,168,168)';
+  g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 160; i += 1) {
+    const baseX = rng() * w;
+    const phase = rng() * Math.PI * 2;
+    const amp = 0.8 + rng() * 2.4;
+    const cycles = 1 + Math.floor(rng() * 3);
+    g.strokeStyle = `rgba(255,255,255,${0.10 + rng() * 0.16})`;
+    g.lineWidth = 0.5 + rng() * 0.8;
+    for (const shift of [-w, 0, w]) {
+      g.beginPath();
+      for (let y = 0; y <= h; y += 8) {
+        const x = baseX + shift + Math.sin((y / h) * Math.PI * 2 * cycles + phase) * amp;
+        if (y === 0) g.moveTo(x, y); else g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+  }
+  g.strokeStyle = 'rgba(255,255,255,0.22)';
+  g.lineWidth = 1.4;
+  for (let i = 0; i < 12; i += 1) {
+    const cx = rng() * w;
+    const cy = 55 + rng() * 390;
+    const spread = 5 + rng() * 12;
+    for (const shift of [-w, 0, w]) {
+      g.beginPath();
+      g.moveTo(cx + shift, cy - 55);
+      g.bezierCurveTo(cx + shift - spread, cy - 22, cx + shift - spread, cy + 22, cx + shift, cy + 55);
+      g.bezierCurveTo(cx + shift + spread, cy + 22, cx + shift + spread, cy - 22, cx + shift, cy - 55);
+      g.stroke();
+    }
+  }
+  modulateGray(g, w, h, (x, y) => (
+    0.94 + fbm((x / w) * 3, (y / h) * 3, 0x0A5B014, 3, 3) * 0.12
+  ));
+}
+
+function drawOakNormal(g, w, h) {
+  const height = (x, y) => (
+    0.55 * tileableFbm((x / w) * 22, (y / h) * 2.5, 0x0A5B012, 4, 22, 2.5)
+    + 0.45 * tileableFbm((x / w) * 60, (y / h) * 7, 0x0A5B013, 2, 60, 7)
+  );
+  normalFromHeight(g, w, h, height, 2.2);
+}
+
+function drawWorktopRough(g, w, h) {
+  const rng = mulberry32(0xC0A90517);
+  g.fillStyle = 'rgb(133,133,133)';
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = 'rgba(255,255,255,0.30)';
+  for (let i = 0; i < 3600; i += 1) {
+    const x = rng() * w;
+    const y = rng() * h;
+    const r = i < 3450 ? 0.35 + rng() * 0.75 : 1 + rng() * 1.5;
+    rng(); // Consume the colour choice so every chip stays registered to drawWorktop.
+    dotWrapped(g, x, y, r, w, h, (xx, yy) => {
+      g.beginPath();
+      g.arc(xx, yy, r, 0, Math.PI * 2);
+      g.fill();
+    });
+  }
+  modulateGray(g, w, h, (x, y) => (
+    (0.88 + 0.24 * fbm((x / w) * 2.5, (y / h) * 2.5, 0xC0A90518, 3, 2.5))
+    * (0.96 + 0.08 * fbm((x / w) * 7, (y / h) * 7, 0xC0A90518 + 31, 2, 7))
+  ));
+
+  const wipeRng = mulberry32(0xC0A90519);
+  g.save();
+  g.strokeStyle = 'rgba(255,255,255,0.05)';
+  g.lineCap = 'round';
+  for (let i = 0; i < 14; i += 1) {
+    const length = 180 + wipeRng() * 240;
+    const lineWidth = 6 + wipeRng() * 8;
+    const angle = (wipeRng() * 2 - 1) * 0.10;
+    const halfX = Math.cos(angle) * length * 0.5;
+    const halfY = Math.sin(angle) * length * 0.5;
+    const yMargin = Math.abs(halfY) + lineWidth * 0.5;
+    const cx = wipeRng() * w;
+    const cy = yMargin + wipeRng() * (h - yMargin * 2);
+    g.lineWidth = lineWidth;
+    for (const shift of [-w, 0, w]) {
+      g.beginPath();
+      g.moveTo(cx + shift - halfX, cy - halfY);
+      g.lineTo(cx + shift + halfX, cy + halfY);
+      g.stroke();
+    }
+  }
+  g.restore();
+}
+
+function drawWorktopNormal(g, w, h) {
+  const height = (x, y) => fbm(
+    (x / w) * 26,
+    (y / h) * 26,
+    0xC0A9052,
+    3,
+    26,
+  );
+  normalFromHeight(g, w, h, height, 0.9);
+}
+
+function drawFloorRough(g, w, h) {
+  const offsets = [-0.012, 0.008, 0.010, -0.006];
+  const image = g.createImageData(w, h);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const quadrant = (y < h / 2 ? 0 : 2) + (x < w / 2 ? 0 : 1);
+      const value = 0.60
+        + (fbm((x / w) * 2, (y / h) * 2, 0x71AA1, 3, 2) - 0.5) * 0.20
+        + offsets[quadrant];
+      writeGray(image, (y * w + x) * 4, value);
+    }
+  }
+  g.putImageData(image, 0, 0);
+  g.fillStyle = 'rgb(255,255,255)';
+  g.fillRect(254.5, 0, 3, h);
+  g.fillRect(0, 254.5, w, 3);
+  g.fillRect(0, 0, 1.5, h);
+  g.fillRect(w - 1.5, 0, 1.5, h);
+  g.fillRect(0, 0, w, 1.5);
+  g.fillRect(0, h - 1.5, w, 1.5);
+}
+
+function floorTileRamp(coord, size) {
+  const p = coord + 0.5;
+  if (p < 1.5 || p >= size - 1.5 || (p >= 254.5 && p < 257.5)) return 0;
+  const distance = p < 254.5
+    ? Math.min(p - 1.5, 254.5 - p)
+    : Math.min(p - 257.5, size - 1.5 - p);
+  return clamp(distance / 2, 0, 1);
+}
+
+function drawFloorNormal(g, w, h) {
+  const height = (x, y) => {
+    const ramp = Math.min(floorTileRamp(x, w), floorTileRamp(y, h));
+    const undulation = fbm((x / w) * 3, (y / h) * 3, 0x71AA2, 2, 3);
+    return 0.55 + ramp * (0.43 + 0.02 * undulation);
+  };
+  normalFromHeight(g, w, h, height, 3.0);
+}
+
+function drawBrushedRough(g, w, h) {
+  const image = g.createImageData(w, h);
+  for (let y = 0; y < h; y += 1) {
+    const k = noise1D(y * 3.7, 0xB2004, h * 3.7);
+    for (let x = 0; x < w; x += 1) {
+      const grain = tileableFbm((x / w) * 3, (y / h) * 40, 0xB2005, 2, 3, 40);
+      const dust = fbm((x / w) * 2, (y / h) * 2, 0xB2006, 3, 2);
+      let value = 0.60 + (k - 0.5) * 0.30 + (grain - 0.5) * 0.10;
+      value = clamp(value, 0.34, 0.92);
+      value = clamp(value + (dust - 0.5) * 0.08, 0.34, 0.92);
+      writeGray(image, (y * w + x) * 4, value);
+    }
+  }
+  g.putImageData(image, 0, 0);
+}
+
+function drawBrushedNormal(g, w, h) {
+  const height = (x, y) => {
+    const row = noise1D(y * 3.7, 0xB2007, h * 3.7);
+    const fine = noise1D(y * 13.1, 0xB2008, h * 13.1);
+    const detail = fbm((x / w) * 4, (y / h) * 4, 0xB2009, 2, 4);
+    return 0.5 + (row - 0.5) * 0.16 + (fine - 0.5) * 0.04 + (detail - 0.5) * 0.02;
+  };
+  normalFromHeight(g, w, h, height, 1.1);
+}
+
+function drawSmudgeRough(g, w, h) {
+  const image = g.createImageData(w, h);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const value = clamp(
+        0.62 + (fbm((x / w) * 3, (y / h) * 3, 0x5A0DE, 3, 3) - 0.5) * 0.34,
+        0.42,
+        0.92,
+      );
+      writeGray(image, (y * w + x) * 4, value);
+    }
+  }
+  g.putImageData(image, 0, 0);
+  const rng = mulberry32(0x5A0DF);
+  for (let i = 0; i < 5; i += 1) {
+    const x = rng() * w;
+    const y = rng() * h;
+    const rx = 34 + rng() * 52;
+    const ry = 7 + rng() * 12;
+    const angle = rng() * Math.PI;
+    dotWrapped(g, x, y, Math.max(rx, ry), w, h, (xx, yy) => {
+      g.save();
+      g.translate(xx, yy);
+      g.rotate(angle);
+      g.scale(rx, ry);
+      const smear = g.createRadialGradient(0, 0, 0, 0, 0, 1);
+      smear.addColorStop(0, 'rgba(255,255,255,0.10)');
+      smear.addColorStop(0.68, 'rgba(255,255,255,0.06)');
+      smear.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = smear;
+      g.beginPath();
+      g.arc(0, 0, 1, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+    });
+  }
+}
+
+function drawPaintRough(g, w, h) {
+  const rng = mulberry32(0x9A16);
+  g.fillStyle = 'rgb(240,240,240)';
+  g.fillRect(0, 0, w, h);
+  g.strokeStyle = 'rgba(0,0,0,0.05)';
+  g.lineCap = 'round';
+  for (let i = 0; i < 90; i += 1) {
+    const x = rng() * w;
+    const y = rng() * h;
+    const length = 60 + rng() * 140;
+    const lineWidth = 2 + rng() * 3;
+    const angle = (rng() - 0.5) * 0.16;
+    const dx = Math.cos(angle) * length * 0.5;
+    const dy = Math.sin(angle) * length * 0.5;
+    g.lineWidth = lineWidth;
+    dotWrapped(g, x, y, length * 0.5 + lineWidth, w, h, (xx, yy) => {
+      g.beginPath();
+      g.moveTo(xx - dx, yy - dy);
+      g.lineTo(xx + dx, yy + dy);
+      g.stroke();
+    });
+  }
+  const image = g.getImageData(0, 0, w, h);
+  for (let i = 0; i < 4000; i += 1) {
+    const x = Math.floor(rng() * w);
+    const y = Math.floor(rng() * h);
+    const index = (y * w + x) * 4;
+    const delta = (rng() < 0.5 ? -1 : 1) * 0.03;
+    writeGray(image, index, image.data[index] / 255 + delta);
+  }
+  g.putImageData(image, 0, 0);
+}
+
+function drawPaintNormal(g, w, h) {
+  const height = (x, y) => (
+    0.6 * fbm((x / w) * 34, (y / h) * 34, 0x9A17, 3, 34)
+    + 0.4 * fbm((x / w) * 9, (y / h) * 9, 0x9A18, 2, 9)
+  );
+  normalFromHeight(g, w, h, height, 1.0);
+}
+
+function drawFabricNormal(g, w, h) {
+  const height = (x, y) => {
+    const sx = Math.sin((x / 8) * Math.PI * 2);
+    const sy = Math.sin((y / 8) * Math.PI * 2);
+    const checker = Math.sin((x / 8) * Math.PI) * Math.sin((y / 8) * Math.PI);
+    const warpWeight = 0.5 + checker * 0.5;
+    const weave = sx * warpWeight + sy * (1 - warpWeight) + checker * 0.32;
+    const fuzz = (fbm((x / w) * 40, (y / h) * 40, 0xFAB1, 2, 40) - 0.5) * 0.16;
+    return clamp(0.5 + weave * 0.20 + fuzz, 0, 1);
+  };
+  normalFromHeight(g, w, h, height, 1.8);
 }
 
 function drawMural(g, w, h) {
@@ -1748,6 +2122,20 @@ export const ceilingPanel = () => reg('ceilingPanel', 256, 256, drawCeilingPanel
 export const tumblerLid = () => reg('tumblerLid', 128, 128, drawTumblerLid);
 export const apronPatch = () => reg('apronPatch', 128, 128, drawApronPatch);
 export const noise = () => reg('noise', 256, 256, drawNoise);
+
+// PBR data maps (linear, tileable).
+export const oakRough = () => regData('oakRough', 512, 512, drawOakRough);
+export const oakNormal = () => regData('oakNormal', 512, 512, drawOakNormal);
+export const worktopRough = () => regData('worktopRough', 512, 512, drawWorktopRough);
+export const worktopNormal = () => regData('worktopNormal', 256, 256, drawWorktopNormal);
+export const floorRough = () => regData('floorRough', 512, 512, drawFloorRough);
+export const floorNormal = () => regData('floorNormal', 512, 512, drawFloorNormal);
+export const brushedRough = () => regData('brushedRough', 512, 512, drawBrushedRough);
+export const brushedNormal = () => regData('brushedNormal', 256, 256, drawBrushedNormal);
+export const smudgeRough = () => regData('smudgeRough', 256, 256, drawSmudgeRough);
+export const paintRough = () => regData('paintRough', 256, 256, drawPaintRough);
+export const paintNormal = () => regData('paintNormal', 256, 256, drawPaintNormal);
+export const fabricNormal = () => regData('fabricNormal', 256, 256, drawFabricNormal);
 
 export function clearTextureCache() {
   for (const texture of cache.values()) texture.dispose();

@@ -33,7 +33,7 @@ const PALETTE = {
   white: 0xFFFFFF,
 };
 
-const screen = (texture, emissiveIntensity = 1.1, color = PALETTE.white) => ({
+const screen = (texture, emissiveIntensity = 1.15, color = PALETTE.white) => ({
   texture,
   emissiveMap: true,
   color,
@@ -57,62 +57,112 @@ const litGraphic = (texture, emissiveIntensity, extra = {}) => ({
 
 const MATERIAL_SPECS = {
   // A 2x repeat makes each 0.54 m oak texture cover roughly 1 m of joinery per UV unit.
-  oak: { texture: 'oakSlat', repeat: [2, 2], color: PALETTE.oak, roughness: 0.62, metalness: 0 },
-  oakDark: { texture: 'oakSlat', repeat: [2, 2], color: PALETTE.oakDark, roughness: 0.68, metalness: 0 },
-  worktop: { texture: 'worktop', repeat: [2, 2], color: PALETTE.worktop, roughness: 0.35, metalness: 0.02 },
-  mural: { texture: 'mural', color: PALETTE.white, roughness: 0.85, metalness: 0 },
-  coral: { color: PALETTE.coral, roughness: 0.45, metalness: 0.05 },
-  blackMatte: { color: PALETTE.blackMatte, roughness: 0.92, metalness: 0 },
-  blackGloss: { color: PALETTE.blackGloss, roughness: 0.22, metalness: 0.15 },
-  chrome: { color: PALETTE.chrome, roughness: 0.14, metalness: 0.95 },
-  steel: { color: PALETTE.steel, roughness: 0.32, metalness: 0.88 },
+  oak: {
+    texture: 'oakSlat', repeat: [2, 2], roughnessMap: ['oakRough', 2, 2],
+    normalMap: ['oakNormal', 2, 2], normalScale: [0.5, 0.5],
+    color: PALETTE.oak, roughness: 0.72, metalness: 0,
+  },
+  oakDark: {
+    texture: 'oakSlat', repeat: [2, 2], roughnessMap: ['oakRough', 2, 2],
+    normalMap: ['oakNormal', 2, 2], normalScale: [0.5, 0.5],
+    color: PALETTE.oakDark, roughness: 0.78, metalness: 0,
+  },
+  worktop: {
+    material: 'physical', texture: 'worktop', repeat: [2, 2],
+    roughnessMap: ['worktopRough', 2, 2], normalMap: ['worktopNormal', 3, 3],
+    normalScale: [0.18, 0.18], color: PALETTE.worktop, roughness: 0.55, metalness: 0,
+    clearcoat: 0.28, clearcoatRoughness: 0.16,
+  },
+  mural: {
+    texture: 'mural', roughnessMap: ['paintRough', 4, 4], normalMap: ['paintNormal', 4, 4],
+    normalScale: [0.15, 0.15], color: PALETTE.white, roughness: 0.92, metalness: 0,
+  },
+  coral: { color: PALETTE.coral, roughness: 0.40, metalness: 0, envMapIntensity: 0.9 },
+  blackMatte: { color: PALETTE.blackMatte, roughness: 0.90, metalness: 0 },
+  blackGloss: {
+    color: PALETTE.blackGloss, roughness: 0.34, metalness: 0,
+    roughnessMap: ['smudgeRough', 2, 2], envMapIntensity: 1.0,
+  },
+  // Not a full 1.0: the last few percent of diffuse is what keeps metals legible on the
+  // fallback path where render.js never assigns scene.environment.
+  chrome: {
+    color: PALETTE.chrome, roughness: 0.18, metalness: 0.94,
+    roughnessMap: ['smudgeRough', 1.5, 1.5], envMapIntensity: 1.25,
+  },
+  steel: {
+    color: PALETTE.steel, roughness: 0.62, metalness: 0.92,
+    roughnessMap: ['brushedRough', 4, 4], normalMap: ['brushedNormal', 4, 4],
+    normalScale: [0.12, 0.12], envMapIntensity: 1.15,
+  },
   glass: {
-    material: 'physical', color: PALETTE.glass, transparent: true, opacity: 0.28,
-    roughness: 0.05, metalness: 0, transmission: 0.9, thickness: 0.02, ior: 1.5,
-    depthWrite: false, side: THREE.DoubleSide,
+    material: 'physical', color: 0xF0F6F7, transparent: true, opacity: 0.30,
+    roughness: 0.04, metalness: 0, transmission: 0.92, thickness: 0.012, ior: 1.5,
+    envMapIntensity: 1.2, depthWrite: false, side: THREE.DoubleSide,
   },
   screen: screen('menuBoardA'),
-  screenDim: screen('menuBoardA', 0.35, PALETTE.screenDim),
-  // 2x2 tiles fill 2.4 m; the terminal floor spans 68 m by 60 m.
-  floor: { texture: 'floorTile', repeat: [68 / 2.4, 60 / 2.4], color: PALETTE.white, roughness: 0.42, metalness: 0.02 },
-  ceiling: { texture: 'ceilingPanel', repeat: [34, 30], color: PALETTE.ceiling, roughness: 0.95, metalness: 0 },
-  wallWhite: { color: PALETTE.wallWhite, roughness: 0.9, metalness: 0 },
-  apronGreen: { color: PALETTE.apronGreen, roughness: 0.75, metalness: 0 },
-  skin: { color: PALETTE.skin, roughness: 0.85, metalness: 0 },
-  cloth: { color: PALETTE.cloth, roughness: 0.95, metalness: 0 },
-  cardboard: { color: PALETTE.cardboard, roughness: 0.95, metalness: 0 },
-  ice: {
-    material: 'physical', color: PALETTE.ice, transparent: true, opacity: 0.55,
-    roughness: 0.1, metalness: 0, transmission: 0.7, depthWrite: false,
+  screenDim: screen('menuBoardA', 0.30, PALETTE.screenDim),
+  // 1.2 m per tile texture, matching what world/terminal.js recomputes for the floor
+  // plane, so the grout break in the roughness map lands on the drawn grout.
+  floor: {
+    texture: 'floorTile', repeat: [68 / 1.2, 60 / 1.2],
+    roughnessMap: ['floorRough', 68 / 1.2, 60 / 1.2],
+    normalMap: ['floorNormal', 68 / 1.2, 60 / 1.2], normalScale: [0.28, 0.28],
+    color: PALETTE.white, roughness: 0.55, metalness: 0, envMapIntensity: 1.0,
   },
-  milk: { color: PALETTE.milk, roughness: 0.6, metalness: 0 },
-  espresso: { color: PALETTE.espresso, roughness: 0.35, metalness: 0 },
+  ceiling: { texture: 'ceilingPanel', repeat: [34, 30], color: PALETTE.ceiling, roughness: 0.95, metalness: 0 },
+  wallWhite: { color: PALETTE.wallWhite, roughness: 0.93, metalness: 0 },
+  apronGreen: {
+    color: PALETTE.apronGreen, roughness: 0.92, metalness: 0,
+    normalMap: ['fabricNormal', 7, 7], normalScale: [0.25, 0.25], envMapIntensity: 0.4,
+  },
+  skin: { color: PALETTE.skin, roughness: 0.68, metalness: 0, envMapIntensity: 0.55 },
+  cloth: {
+    color: PALETTE.cloth, roughness: 0.98, metalness: 0,
+    normalMap: ['fabricNormal', 6, 6], normalScale: [0.30, 0.30], envMapIntensity: 0.4,
+  },
+  cardboard: {
+    color: PALETTE.cardboard, roughness: 0.96, metalness: 0,
+    normalMap: ['paintNormal', 6, 6], normalScale: [0.10, 0.10],
+  },
+  ice: {
+    material: 'physical', color: PALETTE.ice, transparent: true, opacity: 0.58,
+    roughness: 0.14, metalness: 0, transmission: 0.85, thickness: 0.02, ior: 1.31,
+    depthWrite: false, envMapIntensity: 1.0,
+  },
+  milk: { color: PALETTE.milk, roughness: 0.55, metalness: 0 },
+  espresso: { color: PALETTE.espresso, roughness: 0.22, metalness: 0 },
   foam: { color: PALETTE.foam, roughness: 0.95, metalness: 0 },
-  paperCup: { color: PALETTE.paperCup, roughness: 0.8, metalness: 0 },
-  plasticLid: { color: PALETTE.plasticLid, roughness: 0.4, metalness: 0.05 },
+  paperCup: {
+    color: PALETTE.paperCup, roughness: 0.82, metalness: 0,
+    normalMap: ['paintNormal', 3, 3], normalScale: [0.08, 0.08],
+  },
+  plasticLid: { color: PALETTE.plasticLid, roughness: 0.40, metalness: 0 },
   greenSign: {
     color: PALETTE.greenSign, emissive: PALETTE.greenSign,
-    emissiveIntensity: 0.35, roughness: 0.75, metalness: 0,
+    emissiveIntensity: 0.55, roughness: 0.75, metalness: 0,
   },
-  redSign: litGraphic('jet2', 0.85, { roughness: 0.7, toneMapped: false }),
-  yellowSign: litGraphic('inMotionBanner', 0.7, { roughness: 0.7, toneMapped: false }),
-  rubber: { color: PALETTE.rubber, roughness: 0.97, metalness: 0 },
+  redSign: litGraphic('jet2', 0.32, { roughness: 0.7 }),
+  yellowSign: litGraphic('inMotionBanner', 0.28, { roughness: 0.7 }),
+  rubber: {
+    color: PALETTE.rubber, roughness: 0.98, metalness: 0,
+    normalMap: ['fabricNormal', 10, 10], normalScale: [0.22, 0.22],
+  },
 
   screenMenuA: screen('menuBoardA'),
   screenMenuB: screen('menuBoardB'),
   screenFrappo: screen('frappoPromo'),
   screenWrap: screen('wrapPromo'),
   screenPos: screen('posScreen', 1.0),
-  roundelSign: litGraphic('roundel', 1.0, {
+  roundelSign: litGraphic('roundel', 1.05, {
     transparent: true, toneMapped: false, side: THREE.DoubleSide, alphaTest: 0.35,
   }),
-  wordmark: litGraphic('fasciaWordmark', 0.9, {
+  wordmark: litGraphic('fasciaWordmark', 0.55, {
     transparent: true, toneMapped: false, alphaTest: 0.25,
   }),
   brandPlaques: { texture: 'brandPlaques', color: PALETTE.white, roughness: 0.75, metalness: 0 },
-  gateSign: litGraphic('gateSign', 0.25),
-  discoverLondon: litGraphic('discoverLondon', 0.4),
-  aeliaFront: litGraphic('aeliaFront', 0.5),
+  gateSign: litGraphic('gateSign', 0.30),
+  discoverLondon: { texture: 'discoverLondon', color: PALETTE.white, roughness: 0.45, metalness: 0 },
+  aeliaFront: { texture: 'aeliaFront', color: PALETTE.white, roughness: 0.50, metalness: 0 },
   pastryTray: { texture: 'pastryTray', color: PALETTE.white, roughness: 0.8, metalness: 0 },
   beans: { texture: 'beans', repeat: [2, 2], color: PALETTE.white, roughness: 0.9, metalness: 0 },
   cupSleeve: { texture: 'cupSleeve', color: PALETTE.white, roughness: 0.9, metalness: 0 },
@@ -155,13 +205,26 @@ function makeMaterial(name) {
   let material;
   try {
     if (!spec) throw new Error('Unknown material');
-    const { material: kind, texture, repeat, emissiveMap, ...parameters } = spec;
+    const {
+      material: kind, texture, repeat, emissiveMap,
+      roughnessMap, normalMap, metalnessMap, normalScale,
+      ...parameters
+    } = spec;
     if (texture) {
       const map = mapped(tex[texture], ...(repeat ?? []));
       if (map) {
         parameters.map = map;
         if (emissiveMap) parameters.emissiveMap = map;
       }
+    }
+    for (const [slot, mapSpec] of Object.entries({ roughnessMap, normalMap, metalnessMap })) {
+      if (!Array.isArray(mapSpec)) continue;
+      const [textureName, repeatX, repeatY] = mapSpec;
+      const map = mapped(tex[textureName], repeatX, repeatY);
+      if (map) parameters[slot] = map;
+    }
+    if (Array.isArray(normalScale)) {
+      parameters.normalScale = new THREE.Vector2(normalScale[0], normalScale[1]);
     }
     const Material = kind === 'physical' ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
     material = new Material(parameters);
@@ -182,9 +245,16 @@ export function initMaterials(ctx) {
   } catch {
     maxAnisotropy = 8;
   }
+  const clampedMaps = new Set();
   for (const material of cache.values()) {
-    clampMapAnisotropy(material.map);
-    if (material.emissiveMap !== material.map) clampMapAnisotropy(material.emissiveMap);
+    for (const map of [
+      material.map, material.emissiveMap, material.normalMap,
+      material.roughnessMap, material.metalnessMap,
+    ]) {
+      if (!map || clampedMaps.has(map)) continue;
+      clampedMaps.add(map);
+      clampMapAnisotropy(map);
+    }
   }
   for (const name of Object.keys(MATERIAL_SPECS)) makeMaterial(name);
 }
