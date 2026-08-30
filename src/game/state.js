@@ -18,7 +18,7 @@ export function createState() {
     phase: 'title',
     rank: 'Green Apron',
     difficulty: 0,
-    clock: '05:00',
+    clock: '07:00',
     accuracy: 1,
     ordersTaken: 0,
     perfect: 0,
@@ -122,7 +122,7 @@ export function startShift(ctx) {
 
 export function shownClock(tSec) {
   const elapsedMinutes = Math.floor(Math.max(0, Number.isFinite(tSec) ? tSec : 0));
-  const totalMinutes = 5 * 60 + elapsedMinutes;
+  const totalMinutes = 7 * 60 + elapsedMinutes;
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;

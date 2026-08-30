@@ -153,7 +153,7 @@ overlit, faintly plastic — like an airport at 7 a.m.
 ---------------------------------------------------------------------------
 
 You are the barista on the bar. A shift lasts 8 minutes of real time,
-compressed as 05:00 → 13:00 on the terminal clock. Flights board on a
+compressed as 07:00 → 15:00 on the terminal clock. Flights board on a
 schedule; each boarding call sends a **rush** of passengers to the queue.
 
 **Loop**: customer reaches the till → press E to take the order → a ticket

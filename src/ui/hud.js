@@ -564,7 +564,7 @@ function renderMeter(cfg) {
 function buildStats() {
   const region = el('section', 'sb-stat-region');
   const strip = el('div', 'sb-stat-strip');
-  const clock = statCell('SHIFT', '05:00', 'sb-stat-clock');
+  const clock = statCell('SHIFT', '07:00', 'sb-stat-clock');
   const cash = statCell('TAKINGS', '£0.00');
   const tips = statCell('TIPS', '£0.00', 'sb-stat-tips');
   const served = statCell('SERVED', '0', 'sb-stat-served');
@@ -601,7 +601,7 @@ function clockText(state) {
   const tSec = Math.max(0, finite(state?.tSec, 0));
   const rawLength = finite(state?.shiftLength, finite(state?.duration, 480));
   const length = rawLength > 0 ? rawLength : 480;
-  const minutes = clamp(5 * 60 + (tSec / length) * 8 * 60, 5 * 60, 13 * 60);
+  const minutes = clamp(7 * 60 + (tSec / length) * 8 * 60, 7 * 60, 15 * 60);
   const rounded = Math.floor(minutes);
   const hour = Math.floor(rounded / 60);
   const minute = rounded % 60;
@@ -886,7 +886,7 @@ function buildScreens() {
   const wordmark = el('h1', 'sb-wordmark');
   wordmark.append(document.createTextNode('SIM'), el('span', 'sb-wordmark-star', '✱'), document.createTextNode('BUCKS'));
   const rule = el('div', 'sb-title-rule');
-  const premise = el('p', 'sb-premise', 'Luton, 05:00. Two gates are boarding. Make the coffee.');
+  const premise = el('p', 'sb-premise', 'Luton, 07:00. Two gates are boarding. Make the coffee.');
   const controls = el('div', 'sb-controls sb-controls-desktop');
   const bindings = [
     ['MOUSE', 'look'], ['WASD', 'move'], ['E', 'act'], ['HOLD E', 'meters'],
