@@ -896,6 +896,23 @@
   outline-offset: 3px;
 }
 
+.sb-source-link {
+  display: inline-block;
+  margin-top: clamp(5px, .7vmin, 9px);
+  color: var(--sb-coral-text, #F2977E);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(226, 89, 60, .45);
+  padding-bottom: 1px;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.sb-source-link:hover,
+.sb-source-link:focus-visible {
+  color: #fff;
+  border-bottom-color: rgba(255, 255, 255, .7);
+}
+
 .sb-screen-footer {
   margin: clamp(15px, 1.8vmin, 26px) 0 0;
   color: rgba(255, 255, 255, .44);

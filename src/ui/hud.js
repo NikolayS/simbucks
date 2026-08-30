@@ -910,6 +910,11 @@ function buildScreens() {
   const start = el('button', 'sb-primary-button', 'START SHIFT');
   start.type = 'button';
   const footer = el('p', 'sb-screen-footer', 'no assets · everything drawn and synthesised at runtime');
+  const source = el('a', 'sb-source-link', 'source on github');
+  source.href = 'https://github.com/NikolayS/simbucks';
+  source.target = '_blank';
+  source.rel = 'noopener noreferrer';
+  footer.append(document.createElement('br'), source);
   titleCard.append(wordmark, rule, premise, controls, touchControls, start, footer);
   titleScreen.append(titleCard);
 
