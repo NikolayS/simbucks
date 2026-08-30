@@ -42,6 +42,7 @@ export const CONFIG = {
     minQuality: 0.2,
     milkUnits: 2,
     foamUnits: 0.6,
+    foamUnitsByTarget: { wet: 0.35, micro: 0.6, dry: 1.0 },
     coldFoamUnits: 0.1,
     scorchedFoamUnits: 0.15,
   },
@@ -71,6 +72,7 @@ const CLASSIFIER_MIN_SCORE = 0.34;
 const CLASSIFIER_PUMP_PENALTY = 0.06;
 const CLASSIFIER_SIZE_BONUS = 0.04;
 const CLASSIFIER_TEMP_BONUS = 0.04;
+const CLASSIFIER_FOAM_BONUS = 0.06;
 const SCORE_TIE_EPSILON = 1e-9;
 
 const EMPTY_CONTEXT = Object.freeze({});
@@ -81,6 +83,13 @@ const SIZE_HINTS = Object.freeze([
   'Size: TALL · tap to change · hold to take',
   'Size: GRANDE · tap to change · hold to take',
   'Size: VENTI · tap to change · hold to take',
+]);
+const FOAM_TARGETS = Object.freeze(['wet', 'micro', 'dry']);
+const FOAM_FEEDBACK = Object.freeze(['Wet foam', 'Microfoam', 'Dry foam']);
+const FOAM_HINTS = Object.freeze([
+  'Foam: WET · tap to change · hold to steam',
+  'Foam: MICRO · tap to change · hold to steam',
+  'Foam: DRY · tap to change · hold to steam',
 ]);
 const SYRUP_HINTS = Object.freeze([
   'E: pump syrup (0)', 'E: pump syrup (1)', 'E: pump syrup (2)',
@@ -123,7 +132,7 @@ const HINT = Object.freeze({
   espressoTake: 'E: take the portafilter',
   steamPour: 'E: pour the milk',
   steamCup: 'Steamed — grab a cup',
-  steamHold: 'Hold E to steam · E: pour it cold',
+  steamCold: 'E: pour it cold',
   steamTake: 'E: take the pitcher',
   blender: 'Hold E to blend',
   ice: 'E: scoop ice',
@@ -156,6 +165,7 @@ export function createStations(context) {
 
   let now = Number.isFinite(ctx.state?.tSec) ? ctx.state.tSec : 0;
   let selectedSizeIndex = 2;
+  let selectedFoamIndex = 1;
   let cup = null;
   let hand = null;
 
@@ -232,6 +242,7 @@ export function createStations(context) {
     keyCount: 0,
     syrupPumps: 0,
     hasSyrup: false,
+    steamFoam: null,
   };
   let drinkSignatures = null;
 
@@ -652,16 +663,29 @@ export function createStations(context) {
   }
 
   function tapSteamWand() {
-    if (hand === 'pitcher' && pitcher.steamed) {
+    if (hand !== 'pitcher') {
+      if (hand === 'portafilter') resetPortafilter();
+      resetPitcher();
+      hand = 'pitcher';
+      emitHandItem();
+      gesture('tap');
+      sound('beep');
+      feedback('steamWand', true, 'Milk pitcher');
+      return;
+    }
+
+    if (pitcher.steamed) {
       if (!cup) {
-        reject('steamWand', 'Grab a cup first');
+        reject('steamWand', HINT.steamCup);
         return;
       }
-      addStep('steamWand', 'steam', pitcher.quality);
+      const foamTarget = FOAM_TARGETS[selectedFoamIndex];
+      const steamStep = addStep('steamWand', 'steam', pitcher.quality);
+      steamStep.foam = foamTarget;
       addStep('steamWand', 'pour', 1);
       cup.contents.milk += CONFIG.steam.milkUnits;
       cup.contents.foam += pitcher.scorched
-        ? CONFIG.steam.scorchedFoamUnits : CONFIG.steam.foamUnits;
+        ? CONFIG.steam.scorchedFoamUnits : CONFIG.steam.foamUnitsByTarget[foamTarget];
       recomputeCup();
       const scorched = pitcher.scorched;
       resetPitcher();
@@ -673,11 +697,7 @@ export function createStations(context) {
       return;
     }
 
-    if (hand === 'pitcher') {
-      if (!cup) {
-        reject('steamWand', 'Grab a cup first');
-        return;
-      }
+    if (cup?.contents?.ice > 0) {
       addStep('steamWand', 'pour', 1);
       cup.contents.milk += CONFIG.steam.milkUnits;
       cup.contents.foam += CONFIG.steam.coldFoamUnits;
@@ -691,13 +711,9 @@ export function createStations(context) {
       return;
     }
 
-    if (hand === 'portafilter') resetPortafilter();
-    resetPitcher();
-    hand = 'pitcher';
-    emitHandItem();
-    gesture('tap');
-    sound('beep');
-    feedback('steamWand', true, 'Milk pitcher');
+    selectedFoamIndex = (selectedFoamIndex + 1) % FOAM_TARGETS.length;
+    sound('beep', CONFIG.volume.size);
+    feedback('steamWand', true, FOAM_FEEDBACK[selectedFoamIndex]);
   }
 
   function beginSteam(elapsed = 0) {
@@ -749,11 +765,12 @@ export function createStations(context) {
     feedback('steamWand', true, text);
   }
 
-  function fillSignature(steps, signature) {
+  function fillSignature(steps, signature, defaultSteamFoam = false) {
     signature.counts.clear();
     signature.keyCount = 0;
     signature.syrupPumps = 0;
     signature.hasSyrup = false;
+    signature.steamFoam = null;
     if (!Array.isArray(steps)) return signature;
 
     for (let i = 0; i < steps.length; i += 1) {
@@ -764,6 +781,10 @@ export function createStations(context) {
         signature.hasSyrup = true;
         if (Number.isFinite(step.param)) signature.syrupPumps += step.param;
         continue;
+      }
+      if (step.station === 'steamWand' && step.param === 'steam') {
+        signature.steamFoam = typeof step.foam === 'string'
+          ? step.foam : defaultSteamFoam ? 'wet' : null;
       }
       const key = String(step.station ?? '') + ':' + String(step.param ?? '');
       signature.counts.set(key, (signature.counts.get(key) ?? 0) + 1);
@@ -790,8 +811,9 @@ export function createStations(context) {
           keyCount: 0,
           syrupPumps: 0,
           hasSyrup: false,
+          steamFoam: null,
         };
-        fillSignature(drink?.recipe, signature);
+        fillSignature(drink?.recipe, signature, true);
         signatures.push(signature);
       }
       drinkSignatures = signatures;
@@ -841,6 +863,10 @@ export function createStations(context) {
         if (recipe.sizes?.includes(built.size)) score += CLASSIFIER_SIZE_BONUS;
         if (typeof recipe.hot === 'boolean' && recipe.hot === builtHot) {
           score += CLASSIFIER_TEMP_BONUS;
+        }
+        if (builtSignature.steamFoam !== null) {
+          score += recipe.steamFoam === builtSignature.steamFoam
+            ? CLASSIFIER_FOAM_BONUS : -CLASSIFIER_FOAM_BONUS;
         }
 
         const tieRank = ticketTieRank(recipe.id, orders, built.size);
@@ -1228,11 +1254,13 @@ export function createStations(context) {
     const steps = new Array(stepCount);
     for (let i = 0; i < stepCount; i += 1) {
       const step = cup.steps[i];
-      steps[i] = {
+      const servedStep = {
         station: step?.station,
         param: step?.param,
         quality: step?.quality,
       };
+      if (typeof step?.foam === 'string') servedStep.foam = step.foam;
+      steps[i] = servedStep;
     }
 
     const contents = {};
@@ -1444,7 +1472,8 @@ export function createStations(context) {
 
     let steamHint;
     if (hand === 'pitcher' && pitcher.steamed) steamHint = cup ? HINT.steamPour : HINT.steamCup;
-    else if (hand === 'pitcher') steamHint = HINT.steamHold;
+    else if (hand === 'pitcher' && cup?.contents?.ice > 0) steamHint = HINT.steamCold;
+    else if (hand === 'pitcher') steamHint = FOAM_HINTS[selectedFoamIndex];
     else steamHint = HINT.steamTake;
     setHint('steamWand', steamHint);
 

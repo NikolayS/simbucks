@@ -65,6 +65,7 @@ function chairPart(width, height, depth, x, y, z, rotX = 0) {
 const CHAIR_SHELL_GEOMETRY = mergeGeom([
   chairPart(0.46, 0.05, 0.44, 0, 0.44, 0),
   chairPart(0.46, 0.42, 0.05, 0, 0.68, -0.20, -0.12),
+  // Side cheeks span y 0.35–0.45, bridging the seat-pan/beam gap like clamps.
   chairPart(0.03, 0.10, 0.40, -0.235, 0.40, 0),
   chairPart(0.03, 0.10, 0.40, 0.235, 0.40, 0),
 ]);
@@ -289,20 +290,13 @@ export function buildProps(ctx) {
     return true;
   }
 
-  customMaterials.set('seatBeams', m('chrome'));
-  customMaterials.set('seatLegs', m('chrome'));
-  customMaterials.set('powerTotems', m('blackMatte'));
-  customMaterials.set('powerFaceplates', m('coral', { color: P.coral }));
-  customMaterials.set('tableTops', m('oak'));
-  customMaterials.set('tableEdges', m('oakDark'));
-  customMaterials.set('tableLegs', m('blackMatte'));
-  customMaterials.set('stoolSeats', m('oak'));
-  customMaterials.set('stoolLegs', m('blackMatte'));
-  customMaterials.set('cupBodies', m('paperCup'));
+  customMaterials.set('coral', m('coral'));
   customMaterials.set('brownLids', m('plasticLid', { color: 0x6B4A32 }));
-  customMaterials.set('paperBags', m('cardboard'));
-  customMaterials.set('phones', m('blackGloss'));
-  customMaterials.set('laptops', m('steel'));
+  customMaterials.set('tumblerBodies', m('wallWhite', { color: 0xFFFFFF }));
+  customMaterials.set('tumblerLids', ctx.mat?.get?.('tumblerLid')
+    ? m('tumblerLid')
+    : m('plasticLid'));
+  customMaterials.set('coffeeBags', m('blackMatte', { color: 0x2E2018 }));
 
   function worldPoint(bank, localX, localZ) {
     const cosine = Math.cos(bank.rotY);
@@ -333,12 +327,6 @@ export function buildProps(ctx) {
     const bankEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 
     for (const bank of placedBanks) {
-      const bankGroup = new THREE.Group();
-      bankGroup.name = `seatingBank:${bank.id}`;
-      bankGroup.position.set(bank.x, 0, bank.z);
-      bankGroup.rotation.y = bank.rotY;
-      group.add(bankGroup);
-
       bankPosition.set(bank.x, 0, bank.z);
       bankEuler.set(0, bank.rotY, 0);
       bankQuaternion.setFromEuler(bankEuler);
@@ -353,18 +341,18 @@ export function buildProps(ctx) {
         chairMatrices.push(worldMatrix.clone());
       }
 
-      placeBox('seatBeams', bank.x, 0.355, bank.z, 3.60, 0.09, 0.10, bank.rotY);
+      placeBox('chrome', bank.x, 0.355, bank.z, 3.60, 0.09, 0.10, bank.rotY);
       for (const localX of [-1.45, 1.45]) {
         const leg = worldPoint(bank, localX, 0);
-        placeBox('seatLegs', leg.x, 0.20, leg.z, 0.07, 0.40, 0.36, bank.rotY);
+        placeBox('chrome', leg.x, 0.20, leg.z, 0.07, 0.40, 0.36, bank.rotY);
       }
 
       if (bank.power) {
         const totem = worldPoint(bank, 2.10, 0);
-        placeBox('powerTotems', totem.x, 0.475, totem.z,
+        placeBox('blackMatte', totem.x, 0.475, totem.z,
           0.16, 0.95, 0.16, bank.rotY);
         const faceplate = worldPoint(bank, 2.10, 0.09);
-        placeBox('powerFaceplates', faceplate.x, 0.80, faceplate.z,
+        placeBox('coral', faceplate.x, 0.80, faceplate.z,
           0.10, 0.02, 0.02, bank.rotY);
       }
 
@@ -435,7 +423,7 @@ export function buildProps(ctx) {
       const point = scatterPosition(table, 0.041, occupied, itemIndex);
       itemIndex += 1;
       if (!point) continue;
-      placeCylinder('cupBodies', point.x, T.tableSize.h + 0.115 / 2, point.z,
+      placeCylinder('paperCup', point.x, T.tableSize.h + 0.115 / 2, point.z,
         0.037, 0.115, 8);
       placeCylinder('brownLids', point.x, T.tableSize.h + 0.115 + 0.012 / 2, point.z,
         0.041, 0.012, 8);
@@ -447,7 +435,7 @@ export function buildProps(ctx) {
       const rotY = rng() * Math.PI * 2;
       const rotX = 0.10;
       const bagHalfHeight = Math.cos(rotX) * 0.13 / 2 + Math.sin(rotX) * 0.10 / 2;
-      placeBox('paperBags', bag.x, T.tableSize.h + bagHalfHeight, bag.z,
+      placeBox('cardboard', bag.x, T.tableSize.h + bagHalfHeight, bag.z,
         0.16, 0.13, 0.10, rotY, rotX);
     }
 
@@ -455,15 +443,18 @@ export function buildProps(ctx) {
       occupied, itemIndex);
     itemIndex += 1;
     if (phone) {
-      placeBox('phones', phone.x, T.tableSize.h + 0.008 / 2, phone.z,
+      placeBox('blackGloss', phone.x, T.tableSize.h + 0.008 / 2, phone.z,
         0.075, 0.008, 0.150, rng() * Math.PI * 2);
     }
 
     const laptop = scatterPosition(table, Math.hypot(0.31, 0.22) / 2,
       occupied, itemIndex);
     if (laptop) {
-      placeBox('laptops', laptop.x, T.tableSize.h + 0.022 / 2, laptop.z,
-        0.31, 0.022, 0.22, rng() * Math.PI * 2);
+      const rotY = rng() * Math.PI * 2;
+      placeBox('steel', laptop.x, T.tableSize.h + 0.014 / 2, laptop.z,
+        0.31, 0.014, 0.22, rotY);
+      placeBox('blackMatte', laptop.x, T.tableSize.h + 0.014 + 0.008 / 2, laptop.z,
+        0.30, 0.008, 0.21, rotY);
     }
   }
 
@@ -474,16 +465,16 @@ export function buildProps(ctx) {
     for (const table of T.tables) {
       if (blocked(table.x, table.z, tableRadius)) continue;
 
-      placeBox('tableTops', table.x, size.h - 0.06 / 2, table.z,
+      placeBox('oak', table.x, size.h - 0.06 / 2, table.z,
         size.w, 0.06, size.d);
-      placeBox('tableEdges', table.x, 0.99 - 0.05 / 2, table.z,
+      placeBox('oakDark', table.x, 0.99 - 0.05 / 2, table.z,
         size.w - 0.08, 0.05, size.d - 0.08);
 
       const legX = size.w / 2 - 0.30;
       const legZ = size.d / 2 - 0.30;
       for (const xSign of [-1, 1]) {
         for (const zSign of [-1, 1]) {
-          placeBox('tableLegs', table.x + xSign * legX, 0.47,
+          placeBox('blackMatte', table.x + xSign * legX, 0.47,
             table.z + zSign * legZ, 0.09, 0.94, 0.09);
         }
       }
@@ -492,7 +483,7 @@ export function buildProps(ctx) {
         for (let stoolIndex = 0; stoolIndex < 5; stoolIndex += 1) {
           const stoolX = table.x + (stoolIndex - 2) * 1.02;
           const stoolZ = table.z + side * 0.56;
-          placeCylinder('stoolSeats', stoolX, 0.75 - 0.05 / 2, stoolZ,
+          placeCylinder('oak', stoolX, 0.75 - 0.05 / 2, stoolZ,
             0.16, 0.05, 12);
 
           for (let legIndex = 0; legIndex < 4; legIndex += 1) {
@@ -501,7 +492,7 @@ export function buildProps(ctx) {
             const legCentreZ = stoolZ + Math.sin(angle) * 0.105;
             const rotX = -Math.sin(angle) * 0.12;
             const rotZ = Math.cos(angle) * 0.12;
-            placeCylinder('stoolLegs', legCentreX, 0.375, legCentreZ,
+            placeCylinder('blackMatte', legCentreX, 0.375, legCentreZ,
               0.018, 0.75, 8, rotX, rotZ);
           }
         }
@@ -512,8 +503,97 @@ export function buildProps(ctx) {
     }
   }
 
-  // Part 2 hook: intentionally empty until the merch pass.
-  function buildMerch() {}
+  function buildMerch() {
+    const merch = T.merch;
+    const { x0, x1, z0, z1, tiers } = merch;
+    const width = x1 - x0;
+    const depth = z1 - z0;
+    const centreX = (x0 + x1) / 2;
+    const centreZ = (z0 + z1) / 2;
+    const topTier = Math.max(...tiers);
+    const bottomTier = Math.min(...tiers);
+    const carcassTop = topTier + 0.20;
+
+    if (blocked(centreX, centreZ, Math.hypot(width, depth) / 2)) return;
+
+    placeBox('oak', x0 + 0.025, carcassTop / 2, centreZ,
+      0.05, carcassTop, depth);
+    placeBox('oak', x1 - 0.025, carcassTop / 2, centreZ,
+      0.05, carcassTop, depth);
+    placeBox('oak', centreX, carcassTop / 2, z0 + 0.02,
+      width, carcassTop, 0.04);
+    placeBox('oakDark', centreX, 0.05, centreZ,
+      width - 0.08, 0.10, depth - 0.08);
+
+    const shelfDepth = depth - 0.04;
+    const shelfCentreZ = z0 + 0.04 + shelfDepth / 2;
+    for (const tier of tiers) {
+      placeBox('oak', centreX, tier - 0.02, shelfCentreZ,
+        width - 0.10, 0.04, shelfDepth);
+    }
+
+    const columnCount = 7;
+    const rowCount = 3;
+    const columnStart = x0 + 0.16;
+    const columnEnd = x1 - 0.16;
+    const rowStart = z0 + 0.34;
+    const rowEnd = z1 - 0.30;
+    const columnPitch = (columnEnd - columnStart) / (columnCount - 1);
+    const rowPitch = (rowEnd - rowStart) / (rowCount - 1);
+
+    for (const tier of tiers) {
+      for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+        if (tier === bottomTier && columnIndex >= columnCount - 2) continue;
+        const x = columnStart + columnIndex * columnPitch;
+        for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+          const z = rowStart + rowIndex * rowPitch;
+          const colour = (columnIndex + rowIndex) % 2 === 0 ? 0xFFFFFF : P.green;
+          placeCylinder('tumblerBodies', x, tier + 0.095, z,
+            0.045, 0.19, 8, 0, 0, colour);
+          placeCylinder('tumblerLids', x, tier + 0.19 + 0.009, z,
+            0.048, 0.018, 8, 0, 0, colour);
+        }
+      }
+    }
+
+    const basketX0 = columnStart + (columnCount - 2) * columnPitch - columnPitch / 2;
+    const basketX1 = x1 - 0.08;
+    const basketWidth = basketX1 - basketX0;
+    const basketDepth = 0.52;
+    const basketHeight = 0.16;
+    const wallThickness = 0.015;
+    const basketX = (basketX0 + basketX1) / 2;
+    const basketZ = centreZ;
+    const basketY = bottomTier + basketHeight / 2;
+
+    placeBox('steel', basketX, basketY,
+      basketZ - basketDepth / 2 + wallThickness / 2,
+      basketWidth, basketHeight, wallThickness);
+    placeBox('steel', basketX, basketY,
+      basketZ + basketDepth / 2 - wallThickness / 2,
+      basketWidth, basketHeight, wallThickness);
+    placeBox('steel', basketX0 + wallThickness / 2, basketY, basketZ,
+      wallThickness, basketHeight, basketDepth);
+    placeBox('steel', basketX1 - wallThickness / 2, basketY, basketZ,
+      wallThickness, basketHeight, basketDepth);
+
+    const bagWidth = 0.11;
+    const bagHeight = 0.17;
+    const bagDepth = 0.045;
+    const bagPitch = bagDepth + 0.05;
+    for (let bagIndex = 0; bagIndex < 5; bagIndex += 1) {
+      const rotX = (rng() * 2 - 1) * 0.10;
+      const rotY = (rng() * 2 - 1) * 0.08;
+      const bagHalfHeight = Math.abs(Math.cos(rotX)) * bagHeight / 2
+        + Math.abs(Math.sin(rotX)) * bagDepth / 2;
+      const z = basketZ + (bagIndex - 2) * bagPitch;
+      placeBox('coffeeBags', basketX, bottomTier + bagHalfHeight, z,
+        bagWidth, bagHeight, bagDepth, rotY, rotX);
+    }
+
+    addCollider(centreX, carcassTop / 2, centreZ,
+      width, carcassTop, depth, 0);
+  }
 
   // Part 3 hook: intentionally empty until the airport-dressing pass.
   function buildDressing() {}

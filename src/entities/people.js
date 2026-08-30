@@ -33,6 +33,115 @@ const CHILD_AUTHORED_HEIGHT = 1.335;
 
 let contextRandomFallbackCounter = 0;
 
+function mergeBoxes(parts) {
+  const geometries = [];
+  let positionLength = 0;
+  let normalLength = 0;
+  let uvLength = 0;
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i];
+    let geometry = (part.geometry || BOX_GEO).clone();
+    if (geometry.index) {
+      const indexed = geometry;
+      geometry = geometry.toNonIndexed();
+      indexed.dispose();
+    }
+    const rotation = new THREE.Euler(part.rx || 0, part.ry || 0, part.rz || 0);
+    const matrix = new THREE.Matrix4().compose(
+      new THREE.Vector3(part.x, part.y, part.z),
+      new THREE.Quaternion().setFromEuler(rotation),
+      new THREE.Vector3(part.w, part.h, part.d),
+    );
+    geometry.applyMatrix4(matrix);
+    geometries.push(geometry);
+    positionLength += geometry.attributes.position.array.length;
+    normalLength += geometry.attributes.normal.array.length;
+    uvLength += geometry.attributes.uv.array.length;
+  }
+  const merged = new THREE.BufferGeometry();
+  const positions = new Float32Array(positionLength);
+  const normals = new Float32Array(normalLength);
+  const uvs = new Float32Array(uvLength);
+  let positionOffset = 0;
+  let normalOffset = 0;
+  let uvOffset = 0;
+  for (let i = 0; i < geometries.length; i += 1) {
+    const geometry = geometries[i];
+    positions.set(geometry.attributes.position.array, positionOffset);
+    normals.set(geometry.attributes.normal.array, normalOffset);
+    uvs.set(geometry.attributes.uv.array, uvOffset);
+    positionOffset += geometry.attributes.position.array.length;
+    normalOffset += geometry.attributes.normal.array.length;
+    uvOffset += geometry.attributes.uv.array.length;
+    geometry.dispose();
+  }
+  merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  merged.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  merged.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+// Torso-mounted assemblies are authored against width/height/depth of one.
+const APRON_GEO = mergeBoxes([
+  { w: 0.56, h: 0.68, d: 0.084, x: 0, y: 0.65, z: 0.572 },
+  { w: 0.86, h: 1.22, d: 0.095, x: 0, y: -0.17, z: 0.572 },
+  { w: 0.086, h: 0.36, d: 0.074, x: -0.16, y: 0.83, z: 0.572, rz: -0.24 },
+  { w: 0.086, h: 0.36, d: 0.074, x: 0.16, y: 0.83, z: 0.572, rz: 0.24 },
+  { w: 0.086, h: 0.05, d: 1.16, x: -0.16, y: 1.0, z: 0 },
+  { w: 0.086, h: 0.05, d: 1.16, x: 0.16, y: 1.0, z: 0 },
+  { w: 0.074, h: 0.84, d: 0.074, x: -0.08, y: 0.58, z: -0.572, rz: -0.15 },
+  { w: 0.074, h: 0.84, d: 0.074, x: 0.08, y: 0.58, z: -0.572, rz: 0.15 },
+  { w: 0.21, h: 0.11, d: 0.237, x: 0, y: 0.14, z: -0.54 },
+]);
+const BACKPACK_GEO = mergeBoxes([
+  { w: 0.64, h: 0.55, d: 0.737, x: 0, y: 0.47, z: -0.66 },
+  { w: 0.062, h: 0.52, d: 0.132, x: -0.23, y: 0.58, z: -0.50 },
+  { w: 0.062, h: 0.52, d: 0.132, x: 0.23, y: 0.58, z: -0.50 },
+]);
+const TOTE_BAG_GEO = mergeBoxes([
+  { w: 0.741, h: 0.64, d: 0.395, x: 0.83, y: 0.06, z: 0 },
+]);
+const TOTE_STRAPS_GEO = mergeBoxes([
+  { w: 0.062, h: 0.88, d: 0.132, x: 0.77, y: 0.38, z: 0 },
+  { w: 0.062, h: 0.50, d: 0.132, x: 0.48, y: 0.53, z: 0 },
+  { w: 0.31, h: 0.05, d: 0.132, x: 0.63, y: 0.66, z: 0 },
+]);
+const ROLLER_CASE_GEO = mergeBoxes([
+  { w: 0.889, h: 1.10, d: 1.158, x: 0, y: 0, z: 0 },
+]);
+const ROLLER_WHEELS_GEO = mergeBoxes([
+  { geometry: LIMB_GEO, w: 0.136, h: 0.07, d: 0.289, x: -0.321, y: -0.59, z: 0, rz: HALF_PI },
+  { geometry: LIMB_GEO, w: 0.136, h: 0.07, d: 0.289, x: 0.321, y: -0.59, z: 0, rz: HALF_PI },
+]);
+const ROLLER_HANDLE_GEO = mergeBoxes([
+  { w: 0.040, h: 0.84, d: 0.084, x: -0.222, y: 0.76, z: -0.158 },
+  { w: 0.040, h: 0.84, d: 0.084, x: 0.222, y: 0.76, z: -0.158 },
+  { w: 0.494, h: 0.044, d: 0.116, x: 0, y: 1.18, z: -0.158 },
+]);
+const HEADSCARF_GEO = mergeBoxes([
+  { geometry: SPHERE_GEO, w: 0.654, h: 0.388, d: 1.382, x: 0, y: 0.308, z: -0.033 },
+  { w: 0.478, h: 0.438, d: 0.289, x: 0, y: -0.03, z: -0.50 },
+]);
+const BEANIE_GEO = mergeBoxes([
+  { geometry: SPHERE_GEO, w: 0.642, h: 0.313, d: 1.329, x: 0, y: 0.363, z: 0 },
+  { geometry: LIMB_GEO, w: 0.623, h: 0.09, d: 1.329, x: 0, y: 0.388, z: 0 },
+]);
+const CAP_GEO = mergeBoxes([
+  { geometry: LIMB_GEO, w: 0.562, h: 0.11, d: 1.197, x: 0, y: 0.508, z: 0 },
+  { w: 0.395, h: 0.05, d: 0.579, x: 0, y: 0.483, z: 0.605 },
+]);
+const HIGH_VIS_VEST_GEO = mergeBoxes([
+  { w: 0.78, h: 0.76, d: 0.063, x: 0, y: 0.52, z: 0.574 },
+  { w: 0.78, h: 0.76, d: 0.063, x: 0, y: 0.52, z: -0.574 },
+  { w: 0.12, h: 0.07, d: 1.15, x: -0.30, y: 0.91, z: 0 },
+  { w: 0.12, h: 0.07, d: 1.15, x: 0.30, y: 0.91, z: 0 },
+]);
+const HIGH_VIS_BANDS_GEO = mergeBoxes([
+  { w: 0.80, h: 0.09, d: 0.079, x: 0, y: 0.56, z: 0.586 },
+  { w: 0.80, h: 0.09, d: 0.079, x: 0, y: 0.56, z: -0.586 },
+]);
+
 // Safe corridor loops use only genuinely open terminal floor.
 const BASE_PATHS = [
   [-8, 9, 26, 9, 26, 13, -8, 13],
@@ -43,6 +152,10 @@ const BASE_PATHS = [
 ];
 
 const SAFE_FALLBACK_PATH = [10, -8, 26, -8, 26, -5, 10, -5];
+const SAFE_FALLBACK_POINTS = [];
+for (let i = 0; i < SAFE_FALLBACK_PATH.length; i += 2) {
+  SAFE_FALLBACK_POINTS.push(new THREE.Vector3(SAFE_FALLBACK_PATH[i], 0, SAFE_FALLBACK_PATH[i + 1]));
+}
 
 // ---------------------------------------------------------------------------
 // MATERIALS
@@ -211,6 +324,8 @@ function createPerson(ctx, options) {
   const apronMat = namedMaterial(ctx, 'apronGreen', 0x1E6B4F);
   const chromeMat = namedMaterial(ctx, 'chrome', 0xD8DCE0);
   const rubberMat = namedMaterial(ctx, 'rubber', 0x2A2A2C);
+  const highVisMat = colourMaterial(0xE8E23A);
+  const reflectiveMat = colourMaterial(0xD6DAD8);
 
   let topColour = TRAVEL_COLOURS[Math.floor(random() * TRAVEL_COLOURS.length)];
   let trouserColour = TRAVEL_COLOURS[Math.floor(random() * TRAVEL_COLOURS.length)];
@@ -221,7 +336,7 @@ function createPerson(ctx, options) {
     if (Number.isFinite(palette.top)) topColour = palette.top;
     if (Number.isFinite(palette.trousers)) trouserColour = palette.trousers;
   }
-  if (role !== 'barista' && random() < 0.05) topColour = 0xE8E23A;
+  const highVis = role !== 'barista' && random() < 0.05;
   if (trouserColour === topColour) {
     let colourIndex = TRAVEL_COLOURS.indexOf(trouserColour);
     colourIndex = (colourIndex + 1 + Math.floor(random() * (TRAVEL_COLOURS.length - 1))) % TRAVEL_COLOURS.length;
@@ -245,7 +360,7 @@ function createPerson(ctx, options) {
   hips.name = 'hips';
   hips.position.y = hipHeight;
   root.add(hips);
-  const shadowRig = role === 'barista';
+  const shadowRig = role === 'barista' || Boolean(opts.castShadow);
   addMesh(hips, BOX_GEO, trouserMat, 'pelvis', 0, 0.035, 0, hipWidth, 0.16, 0.18, shadowRig);
 
   const spine = new THREE.Object3D();
@@ -256,6 +371,16 @@ function createPerson(ctx, options) {
     spine, TORSO_GEO, topMat, 'torso', 0, torsoHeight * 0.5, 0,
     shoulderWidth, torsoHeight, torsoDepth, shadowRig,
   );
+  if (highVis) {
+    addMesh(
+      spine, HIGH_VIS_VEST_GEO, highVisMat, 'highVisVest', 0, 0, 0,
+      shoulderWidth, torsoHeight, torsoDepth, false,
+    );
+    addMesh(
+      spine, HIGH_VIS_BANDS_GEO, reflectiveMat, 'highVisBands', 0, 0, 0,
+      shoulderWidth, torsoHeight, torsoDepth, false,
+    );
+  }
 
   const neck = new THREE.Object3D();
   neck.name = 'neck';
@@ -278,21 +403,13 @@ function createPerson(ctx, options) {
     if (headwear === 'headscarf') {
       const scarfMat = colourMaterial(0x23262B);
       addMesh(
-        head, SPHERE_GEO, scarfMat, 'headscarfCap', 0, headRadius * 1.23, -headRadius * 0.05,
-        headRadius * 2.12, headRadius * 1.55, headRadius * 2.1, false,
-      );
-      addMesh(
-        head, BOX_GEO, scarfMat, 'headscarfDrape', 0, -0.015, -headRadius * 0.76,
-        headRadius * 1.55, headRadius * 1.75, 0.055, false,
+        head, HEADSCARF_GEO, scarfMat, 'headscarfCap', 0, 0, 0,
+        shoulderWidth, torsoHeight, torsoDepth, false,
       );
     } else {
       addMesh(
-        head, LIMB_GEO, blackMat, 'capCrown', 0, headRadius * 2.03, 0,
-        headRadius * 1.82, 0.055, headRadius * 1.82, false,
-      );
-      addMesh(
-        head, BOX_GEO, blackMat, 'capPeak', 0, headRadius * 1.93, headRadius * 0.92,
-        0.16, 0.025, 0.11, false,
+        head, CAP_GEO, blackMat, 'capCrown', 0, 0, 0,
+        shoulderWidth, torsoHeight, torsoDepth, false,
       );
     }
   } else {
@@ -300,12 +417,8 @@ function createPerson(ctx, options) {
     if (hairRoll >= 0.10 && hairRoll < 0.23) {
       const beanieMat = colourMaterial(BEANIE_COLOURS[Math.floor(random() * BEANIE_COLOURS.length)]);
       addMesh(
-        head, SPHERE_GEO, beanieMat, 'beanie', 0, headRadius * 1.45, 0,
-        headRadius * 2.08, headRadius * 1.25, headRadius * 2.02, false,
-      );
-      addMesh(
-        head, LIMB_GEO, beanieMat, 'beanieBand', 0, headRadius * 1.55, 0,
-        headRadius * 2.02, 0.045, headRadius * 2.02, false,
+        head, BEANIE_GEO, beanieMat, 'beanie', 0, 0, 0,
+        shoulderWidth, torsoHeight, torsoDepth, false,
       );
     } else if (hairRoll >= 0.23) {
       const hairMat = colourMaterial(HAIR_COLOURS[Math.floor(random() * HAIR_COLOURS.length)]);
@@ -400,28 +513,9 @@ function createPerson(ctx, options) {
   );
 
   if (role === 'barista') {
-    const apronFront = torsoDepth * 0.53 + 0.008;
     addMesh(
-      spine, BOX_GEO, apronMat, 'apronBib', 0, torsoHeight * 0.64, apronFront,
-      shoulderWidth * 0.43, torsoHeight * 0.38, 0.016, false,
-    );
-    addMesh(
-      spine, BOX_GEO, apronMat, 'apronSkirt', 0, torsoHeight * 0.25, apronFront,
-      shoulderWidth * 0.68, torsoHeight * 0.40, 0.018, false,
-    );
-    const strapL = addMesh(
-      spine, BOX_GEO, apronMat, 'apronStrapL', -shoulderWidth * 0.16, torsoHeight * 0.83, apronFront,
-      0.035, torsoHeight * 0.36, 0.014, false,
-    );
-    const strapR = addMesh(
-      spine, BOX_GEO, apronMat, 'apronStrapR', shoulderWidth * 0.16, torsoHeight * 0.83, apronFront,
-      0.035, torsoHeight * 0.36, 0.014, false,
-    );
-    strapL.rotation.z = -0.24;
-    strapR.rotation.z = 0.24;
-    addMesh(
-      spine, BOX_GEO, apronMat, 'apronKnot', 0, torsoHeight * 0.14, -torsoDepth * 0.54,
-      0.085, 0.055, 0.045, false,
+      spine, APRON_GEO, apronMat, 'apronBib', 0, 0, 0,
+      shoulderWidth, torsoHeight, torsoDepth, false,
     );
   }
 
@@ -441,33 +535,17 @@ function createPerson(ctx, options) {
   let rollerSeatedY = 0;
   if (bagType === 'backpack') {
     addMesh(
-      spine, BOX_GEO, bagMat, 'backpack', 0, torsoHeight * 0.47, -torsoDepth * 0.66,
-      shoulderWidth * 0.64, torsoHeight * 0.55, 0.14, false,
-    );
-    addMesh(
-      spine, BOX_GEO, bagMat, 'backpackStrapL', -shoulderWidth * 0.23, torsoHeight * 0.58, -torsoDepth * 0.50,
-      0.025, torsoHeight * 0.52, 0.025, false,
-    );
-    addMesh(
-      spine, BOX_GEO, bagMat, 'backpackStrapR', shoulderWidth * 0.23, torsoHeight * 0.58, -torsoDepth * 0.50,
-      0.025, torsoHeight * 0.52, 0.025, false,
+      spine, BACKPACK_GEO, bagMat, 'backpack', 0, 0, 0,
+      shoulderWidth, torsoHeight, torsoDepth, false,
     );
   } else if (bagType === 'tote') {
     addMesh(
-      spine, BOX_GEO, bagMat, 'tote', shoulderWidth * 0.83, 0.03, 0,
-      0.30, 0.32, 0.075, false,
+      spine, TOTE_BAG_GEO, bagMat, 'tote', 0, 0, 0,
+      shoulderWidth, torsoHeight, torsoDepth, false,
     );
     addMesh(
-      spine, BOX_GEO, bagMat, 'toteStrapOuter', shoulderWidth * 0.77, torsoHeight * 0.38, 0,
-      0.025, 0.44, 0.025, false,
-    );
-    addMesh(
-      spine, BOX_GEO, bagMat, 'toteStrapInner', shoulderWidth * 0.48, torsoHeight * 0.53, 0,
-      0.025, 0.25, 0.025, false,
-    );
-    addMesh(
-      spine, BOX_GEO, bagMat, 'toteStrapTop', shoulderWidth * 0.63, torsoHeight * 0.66, 0,
-      shoulderWidth * 0.31, 0.025, 0.025, false,
+      spine, TOTE_STRAPS_GEO, bagMat, 'toteStrapOuter', 0, 0, 0,
+      shoulderWidth, torsoHeight, torsoDepth, false,
     );
   } else if (bagType === 'roller') {
     rollerGroup = new THREE.Object3D();
@@ -477,14 +555,9 @@ function createPerson(ctx, options) {
     rollerGroup.position.set(0.24, rollerStandingY, rollerGroupZ);
     rollerGroup.rotation.x = rollerStandingTilt;
     handR.add(rollerGroup);
-    addMesh(rollerGroup, BOX_GEO, bagMat, 'rollerCase', 0, 0, 0, 0.36, 0.55, 0.22, false);
-    const wheelL = addMesh(rollerGroup, LIMB_GEO, rubberMat, 'rollerWheelL', -0.13, rollerWheelCentreY, 0, 0.055, 0.035, 0.055, false);
-    const wheelR = addMesh(rollerGroup, LIMB_GEO, rubberMat, 'rollerWheelR', 0.13, rollerWheelCentreY, 0, 0.055, 0.035, 0.055, false);
-    wheelL.rotation.z = HALF_PI;
-    wheelR.rotation.z = HALF_PI;
-    addMesh(rollerGroup, BOX_GEO, chromeMat, 'rollerHandleL', -0.09, 0.38, -0.03, 0.016, 0.42, 0.016, false);
-    addMesh(rollerGroup, BOX_GEO, chromeMat, 'rollerHandleR', 0.09, 0.38, -0.03, 0.016, 0.42, 0.016, false);
-    addMesh(rollerGroup, BOX_GEO, chromeMat, 'rollerGrip', 0, 0.59, -0.03, 0.20, 0.022, 0.022, false);
+    addMesh(rollerGroup, ROLLER_CASE_GEO, bagMat, 'rollerCase', 0, 0, 0, shoulderWidth, torsoHeight, torsoDepth, false);
+    addMesh(rollerGroup, ROLLER_WHEELS_GEO, rubberMat, 'rollerWheelL', 0, 0, 0, shoulderWidth, torsoHeight, torsoDepth, false);
+    addMesh(rollerGroup, ROLLER_HANDLE_GEO, chromeMat, 'rollerHandleL', 0, 0, 0, shoulderWidth, torsoHeight, torsoDepth, false);
   }
 
   const forcedPhone = palette && !Array.isArray(palette) && palette.phone;
@@ -542,6 +615,8 @@ function createPerson(ctx, options) {
   const workOffset = random() * workTotal;
   const wipePasses = random() < 0.5 ? 2 : 3;
   let sitPhi = 0;
+  const sitSlouch = Number.isFinite(opts.sitSlouch) ? clamp(opts.sitSlouch, 0.04, 0.16) : 0.08;
+  const sitArm = opts.sitArm === 'right' ? 'right' : 'left';
 
   function seatRootY() {
     const scaleY = Math.abs(group.scale.y) > 0.0001 ? group.scale.y : personScale;
@@ -877,11 +952,18 @@ function createPerson(ctx, options) {
       thighRX = -HALF_PI + sitPhi;
       kneeLX = HALF_PI - sitPhi;
       kneeRX = HALF_PI - sitPhi;
-      spineLean = 0.08;
-      shoulderLX = -0.76;
-      elbowLX = -0.63;
-      shoulderRX = 0.06;
-      elbowRX = 0.12;
+      spineLean = sitSlouch;
+      if (sitArm === 'right') {
+        shoulderLX = 0.06;
+        elbowLX = 0.12;
+        shoulderRX = -0.76;
+        elbowRX = -0.63;
+      } else {
+        shoulderLX = -0.76;
+        elbowLX = -0.63;
+        shoulderRX = 0.06;
+        elbowRX = 0.12;
+      }
       rollerY = rollerSeatedY;
       rollerTilt = 0;
     } else if (pose === 'work') {
@@ -1054,6 +1136,7 @@ function segmentHitsBox(ax, az, bx, bz, box) {
 }
 
 function segmentCrossesRail(ax, az, bx, bz, rail) {
+  if (!rail) return false;
   const dz = bz - az;
   if (Math.abs(dz) < 0.000001) {
     if (Math.abs(az - rail.z) > 0.000001) return false;
@@ -1134,14 +1217,18 @@ function makeWalkerPath(templateIndex, random, boxes, rail) {
     points.push(new THREE.Vector3(SAFE_FALLBACK_PATH[i], 0, SAFE_FALLBACK_PATH[i + 1]));
   }
   if (pathIsSafe(points, boxes, rail)) return points;
-  throw new Error('No safe walker path available');
+  return SAFE_FALLBACK_POINTS;
 }
 
 function offsetPairedPath(source, offset, boxes, rail) {
+  if (!Array.isArray(source) || source.length < 2) return SAFE_FALLBACK_POINTS;
   const points = [];
   for (let i = 0; i < source.length; i += 1) {
     const previous = source[(i + source.length - 1) % source.length];
     const next = source[(i + 1) % source.length];
+    if (!previous || !next || !Number.isFinite(source[i]?.x) || !Number.isFinite(source[i]?.z)) {
+      return SAFE_FALLBACK_POINTS;
+    }
     const dx = next.x - previous.x;
     const dz = next.z - previous.z;
     const inverseLength = 1 / Math.max(0.000001, Math.sqrt(dx * dx + dz * dz));
@@ -1163,7 +1250,7 @@ function offsetPairedPath(source, offset, boxes, rail) {
   }
   if (pathIsSafe(points, boxes, rail)) return points;
   if (pathIsSafe(source, boxes, rail)) return source;
-  throw new Error('Paired walker source path is unsafe');
+  return SAFE_FALLBACK_POINTS;
 }
 
 function emptyBuilder() {

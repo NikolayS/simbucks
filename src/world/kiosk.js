@@ -595,28 +595,44 @@ export function buildKiosk(ctx) {
   group.add(archPlates);
 
   // 5. Coral queue rails.
-  addMesh(
-    'kiosk.railA.top',
-    new THREE.TubeGeometry(
-      new THREE.LineCurve3(
-        new THREE.Vector3(L.rails.a.x0, L.rails.a.y, L.rails.a.z),
-        new THREE.Vector3(L.rails.a.x1, L.rails.a.y, L.rails.a.z),
+  const gap = L.rails.a.gap;
+  const hasRailAGap = Number.isFinite(gap?.x0)
+    && Number.isFinite(gap?.x1)
+    && gap.x0 > L.rails.a.x0
+    && gap.x1 < L.rails.a.x1
+    && gap.x0 < gap.x1;
+  const railASegments = hasRailAGap
+    ? [[L.rails.a.x0, gap.x0], [gap.x1, L.rails.a.x1]]
+    : [[L.rails.a.x0, L.rails.a.x1]];
+  railASegments.forEach(([x0, x1], index) => {
+    addMesh(
+      index === 0 ? 'kiosk.railA.top' : 'kiosk.railA.top.east',
+      new THREE.TubeGeometry(
+        new THREE.LineCurve3(
+          new THREE.Vector3(x0, L.rails.a.y, L.rails.a.z),
+          new THREE.Vector3(x1, L.rails.a.y, L.rails.a.z),
+        ),
+        48,
+        L.arch.tube,
+        8,
+        false,
       ),
-      48,
-      L.arch.tube,
-      8,
-      false,
-    ),
-    coralMaterial,
-  );
+      coralMaterial,
+    );
+  });
 
-  const railASpan = L.rails.a.x1 - L.rails.a.x0;
-  const railAIntervals = Math.max(1, Math.ceil(railASpan / 1.6));
-  const railARegularPostCount = railAIntervals + 1;
+  const railAPostXs = railASegments.flatMap(([x0, x1]) => {
+    const intervals = Math.max(1, Math.ceil((x1 - x0) / 1.6));
+    return Array.from(
+      { length: intervals + 1 },
+      (_, i) => (i === intervals ? x1 : THREE.MathUtils.lerp(x0, x1, i / intervals)),
+    );
+  });
+  const railAPostCount = railAPostXs.length;
   const railAPosts = new THREE.InstancedMesh(
     new THREE.CylinderGeometry(1, 1, 1, 12),
     coralMaterial,
-    railARegularPostCount,
+    railAPostCount,
   );
   railAPosts.name = 'kiosk.railA.posts';
   railAPosts.castShadow = true;
@@ -624,13 +640,13 @@ export function buildKiosk(ctx) {
   const railAPlates = new THREE.InstancedMesh(
     new THREE.CylinderGeometry(1, 1, 1, 12),
     plateMaterial,
-    railARegularPostCount,
+    railAPostCount,
   );
   railAPlates.name = 'kiosk.railA.basePlates';
   railAPlates.castShadow = false;
   railAPlates.receiveShadow = true;
-  for (let i = 0; i < railARegularPostCount; i += 1) {
-    const x = THREE.MathUtils.lerp(L.rails.a.x0, L.rails.a.x1, i / railAIntervals);
+  for (let i = 0; i < railAPostCount; i += 1) {
+    const x = railAPostXs[i];
     setInstance(
       railAPosts,
       i,

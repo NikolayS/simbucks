@@ -1,5 +1,5 @@
 import {
-  DRINKS, pickDrink, pickFood, recipeFor, sizeLabel, sizeDelta, getDrink,
+  DRINKS, pickDrink, pickFood, recipeFor, sizeLabel, sizeDelta, getDrink, foamLabel,
 } from './menu.js';
 
 function deepFreeze(value) {
@@ -179,7 +179,7 @@ function applyMod(def, steps, rng) {
     for (const step of steps) if (step?.station === 'steamWand') step.milk = 'oat';
   } else if (def.id === 'noFoam') {
     const step = steps.find(item => item?.station === 'steamWand' && item.param === 'steam');
-    if (step) step.foam = 'none';
+    if (step) step.foam = 'wet';
   } else if (def.id === 'extraHot') {
     const step = steps.find(item => item?.station === 'steamWand' && item.param === 'steam');
     if (step) step.temp = 'extraHot';
@@ -310,6 +310,13 @@ export function orderText(order) {
       } else if (syrup.label) {
         trailing.push(cleanText(syrup.label));
       }
+    }
+    if (!mods.some(mod => mod?.id === 'noFoam')) {
+      const foamStep = Array.isArray(order.steps)
+        ? order.steps.find(step => step?.station === 'steamWand' && step.param === 'steam')
+        : null;
+      const foam = foamLabel(foamStep?.foam);
+      if (foam) trailing.push(foam);
     }
 
     const prefix = `${size}${leading.length ? ` ${leading.join(' ')}` : ''}`;
@@ -544,6 +551,26 @@ function scoreOrderSafe(order, built) {
     addNote(`Wrong milk (${wrongMilk.made} not ${wrongMilk.asked})`, 95);
   }
 
+  let wrongFoam = null;
+  for (const ticketStep of ticketSteps) {
+    if (ticketStep?.station !== 'steamWand' || ticketStep.param !== 'steam'
+      || !Object.prototype.hasOwnProperty.call(ticketStep, 'foam')) continue;
+    const madeStep = builtSteps.find(step => step?.station === ticketStep.station
+      && step.param === ticketStep.param
+      && Object.prototype.hasOwnProperty.call(step, 'foam'));
+    if (madeStep && madeStep.foam !== ticketStep.foam) {
+      const made = foamLabel(madeStep.foam);
+      const asked = foamLabel(ticketStep.foam);
+      if (made && asked) wrongFoam = { made, asked };
+      break;
+    }
+  }
+  if (wrongFoam) {
+    score -= 0.14;
+    const made = `${wrongFoam.made.charAt(0).toUpperCase()}${wrongFoam.made.slice(1)}`;
+    addNote(`${made}, the ticket says ${wrongFoam.asked}`, 80);
+  }
+
   const syrupDifference = syrupTotal(builtSteps) - syrupTotal(ticketSteps);
   if (syrupDifference !== 0) {
     const amount = Math.abs(syrupDifference);
@@ -636,7 +663,11 @@ function scoreOrderSafe(order, built) {
   return {
     score,
     tip,
-    correct: score >= 0.8,
+    // Wrong aeration costs only 0.14, so the cup still pays — but Latte, Flat
+    // White and Cappuccino are separated by nothing else, and `correct` is what
+    // stations.js matches a cup to a ticket with. A dry-foam cup is plainly not
+    // the Latte's, so it must never satisfy that ticket.
+    correct: score >= 0.8 && !wrongFoam,
     notes,
     payout,
   };

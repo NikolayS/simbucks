@@ -1,4 +1,5 @@
-// A step is {station, param}, with optional size, milk, foam, temp, or note.
+// A step is {station, param}, with optional size, milk,
+// foam ('wet'|'micro'|'dry'), temp, or note.
 // Recipe vocabulary: cupStack cup/lid; grinder grind; espresso pull;
 // steamWand steam/pour; superauto shot; syrupRack numeric pumps;
 // blender blend; iceWell ice; sink water; coldBrewTap tap.
@@ -24,6 +25,15 @@ export const STEP_VERBS = deepFreeze({
   coldBrewTap: ['tap'],
 });
 
+export const FOAMS = Object.freeze(['wet', 'micro', 'dry']);
+
+export function foamLabel(foam) {
+  if (foam === 'wet') return 'wet foam';
+  if (foam === 'micro') return 'microfoam';
+  if (foam === 'dry') return 'dry foam';
+  return '';
+}
+
 export const SIZES = deepFreeze([
   { id: 'short', label: 'Short', ml: 236, delta: -0.30 },
   { id: 'tall', label: 'Tall', ml: 354, delta: 0.00 },
@@ -42,8 +52,8 @@ export function sizeLabel(sizeId) {
 const cup = () => ({ station: 'cupStack', param: 'cup' });
 const lid = () => ({ station: 'cupStack', param: 'lid' });
 
-// Latte, Flat White and Cappuccino are deliberately step-identical: their foam
-// textures cannot be distinguished by the bar hardware, so scoring ties favour the ticket.
+// Latte, Flat White and Cappuccino are no longer interchangeable: wet foam,
+// microfoam and dry foam distinguish their otherwise matching steps.
 export const DRINKS = deepFreeze([
   {
     id: 'espresso', name: 'Espresso', price: 2.15, hot: true,
@@ -61,7 +71,8 @@ export const DRINKS = deepFreeze([
     id: 'latte', name: 'Latte', price: 3.55, hot: true,
     size: ['tall', 'grande', 'venti'], tags: ['espresso', 'milk'], w0: 12, w1: 6, milk: true,
     recipe: [cup(), { station: 'grinder', param: 'grind' },
-      { station: 'espresso', param: 'pull' }, { station: 'steamWand', param: 'steam' },
+      { station: 'espresso', param: 'pull' },
+      { station: 'steamWand', param: 'steam', foam: 'wet' },
       { station: 'steamWand', param: 'pour' }, lid()],
   },
   {

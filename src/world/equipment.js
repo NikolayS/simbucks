@@ -1,7 +1,7 @@
 /*
  * Equipment budget estimate: 40 draw calls, approximately 9k triangles.
- * Repeated cups, gauges, bottles, pumps, ice, water bottles, caps, pitchers,
- * and LEDs are instanced; same-finish static machine parts are locally merged.
+ * Repeated cups, gauges, bottles, pumps, ice, water bottles, caps, and LEDs
+ * are instanced; same-finish static machine parts are locally merged.
  */
 import * as THREE from 'three';
 
@@ -12,6 +12,7 @@ const SINK_CUTOUT_WIDTH = 0.46;
 const SINK_CUTOUT_DEPTH = 0.34;
 const ICE_WELL_CUTOUT_WIDTH = 0.38;
 const ICE_WELL_CUTOUT_DEPTH = 0.30;
+// mirrored from src/world/kiosk.js
 const UNDER_COUNTER_BAY_X0 = -4.60;
 const UNDER_COUNTER_BAY_X1 = 3.40;
 const UNDER_COUNTER_BAY_Z0 = -2.32;
@@ -341,8 +342,6 @@ export function buildEquipment(ctx) {
     const portafilterZ = bodyFrontZ - 0.13;
     const gaugeZ = bodyFrontZ - 0.07;
     const topTrayDepth = bodyDepth - 0.12;
-    const cupRailBackZ = bodyBackZ + 0.08;
-    const cupRailFrontZ = bodyFrontZ - 0.04;
     const dripTrayDepth = 0.30;
     const dripTrayZ = bodyFrontZ - dripTrayDepth * 0.5 - 0.01;
     const body = addMesh(
@@ -946,8 +945,9 @@ export function buildEquipment(ctx) {
     addMesh(dressing, 'equip.underCounter.cupBoxes', boxesGeometry, materials.cardboard, true, true);
 
     const binX = UNDER_COUNTER_BAY_X1 - 0.25;
+    const binBodyHeight = Math.min(0.56, bayHeight - 0.19);
     const binGeometry = mergeGeometry([
-      { geometry: new THREE.BoxGeometry(0.40, Math.min(0.56, bayHeight - 0.19), 0.30), matrix: matrix(binX, floorY + Math.min(0.56, bayHeight - 0.19) * 0.5, z) },
+      { geometry: new THREE.BoxGeometry(0.40, binBodyHeight, 0.30), matrix: matrix(binX, floorY + binBodyHeight * 0.5, z) },
       { geometry: new THREE.CylinderGeometry(0.15, 0.15, 0.37, 12, 1, false, 0, Math.PI), matrix: matrix(binX, floorY + 0.56, z, 0, 0, Math.PI / 2, 1, 1, 1.18) },
     ]);
     addMesh(dressing, 'equip.underCounter.swingBin', binGeometry, materials.black, true, true);

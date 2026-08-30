@@ -150,7 +150,11 @@ if (!player) {
   });
 }
 
-guard('state.start', () => gstate.startShift?.(ctx));
+// The shift must not begin until the player dismisses the title card, or the
+// clock (and the queue) runs while they are still reading the controls.
+const beginShift = () => guard('state.start', () => gstate.startShift?.(ctx));
+if (typeof hud.showTitle === 'function') guard('hud.showTitle', () => hud.showTitle(beginShift));
+else beginShift();
 
 document.getElementById('boot').style.display = 'none';
 

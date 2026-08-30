@@ -78,6 +78,9 @@ export function buildCustomers(ctx) {
   const railWestX = finite(railA.x0) - 0.35;
   const railEastX = finite(railA.x1) + 0.55;
   const railMidX = (finite(railA.x0) + finite(railA.x1)) * 0.5;
+  const gapA = layout.rails?.a?.gap;
+  const hasGapA = Number.isFinite(gapA?.x0) && Number.isFinite(gapA?.x1);
+  const gapX = hasGapA ? (gapA.x0 + gapA.x1) * 0.5 : railWestX;
   const active = [], pool = [], queue = [];
   const pickupSlots = new Array(pickupN).fill(null);
   const pendingSpawns = [], unsubs = [];
@@ -174,10 +177,18 @@ export function buildCustomers(ctx) {
   // Queue, pickup and departure paths never cross the counter-side boundary.
   function pathIntoQueue(c, i, fromHold = false) {
     const x = orderX(i);
+    if (!hasGapA) {
+      setPath(c, fromHold
+        ? [point(railWestX, c.pos.z), point(railWestX, orderZ), point(x, orderZ)]
+        : [point(enter.x, CORRIDOR_Z), point(railWestX, CORRIDOR_Z),
+          point(railWestX, orderZ), point(x, orderZ)]);
+      return;
+    }
     setPath(c, fromHold
-      ? [point(railWestX, c.pos.z), point(railWestX, orderZ), point(x, orderZ)]
-      : [point(enter.x, CORRIDOR_Z), point(railWestX, CORRIDOR_Z),
-        point(railWestX, orderZ), point(x, orderZ)]);
+      ? [point(c.pos.x, CORRIDOR_Z), point(gapX, CORRIDOR_Z),
+        point(gapX, orderZ), point(x, orderZ)]
+      : [point(enter.x, CORRIDOR_Z), point(gapX, CORRIDOR_Z),
+        point(gapX, orderZ), point(x, orderZ)]);
   }
   function freePickup(c) {
     for (let i = 0; i < pickupSlots.length; i++) if (pickupSlots[i] === c) pickupSlots[i] = null;
@@ -201,12 +212,11 @@ export function buildCustomers(ctx) {
       const c = queue[i];
       c.slot = i;
       // Someone already in the channel just shuffles forward. Anyone still
-      // approaching has to keep coming round the west end of the rail, so route
-      // them sideways at their current z first and never across the fence.
+      // approaching moves sideways first, then enters through the rail gap.
       if (c.pos.z <= finite(orderCfg.z) + 0.6) {
         setPath(c, [orderPoint(i)]);
       } else {
-        setPath(c, [point(railWestX, c.pos.z), point(railWestX, orderCfg.z), orderPoint(i)]);
+        setPath(c, [point(gapX, c.pos.z), point(gapX, orderCfg.z), orderPoint(i)]);
       }
       setMode(c, 'walkIn');
     }
@@ -225,7 +235,7 @@ export function buildCustomers(ctx) {
     const insideQueueChannel = c.pos.x >= finite(railA.x0) - 0.3
       && c.pos.x <= finite(railA.x1) + 0.3;
     if (insideQueueChannel) {
-      const escapeX = c.pos.x < railMidX ? railWestX : railEastX;
+      const escapeX = hasGapA ? gapX : (c.pos.x < railMidX ? railWestX : railEastX);
       setPath(c, [point(escapeX, c.pos.z), point(escapeX, CORRIDOR_Z),
         point(exit.x, CORRIDOR_Z), point(exit.x, exit.z)]);
     } else {
