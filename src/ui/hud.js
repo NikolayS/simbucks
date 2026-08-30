@@ -4,6 +4,7 @@ const CORAL = '#E2593C';
 const PATIENCE_GREEN = '#3FA46A';
 const AMBER = '#E0A526';
 const BAD = '#C0392B';
+const TOUCH_BUTTON_LABELS = { E: 'ACT', Q: 'DROP', L: 'LID' };
 
 let initialised = false;
 let hudRoot = null;
@@ -114,6 +115,8 @@ function setTouchMode(on) {
   touchMode = next;
   toggleClass(hudRoot, 'sb-touch', touchMode);
   lastResumeHintHidden = null;
+  try { renderPrompt(pendingPrompt); } catch (error) { warn('touch-prompt', error); }
+  try { renderToastText(); } catch (error) { warn('touch-toasts', error); }
   try { updatePointerLockHint(); } catch (error) { warn('touch-mode', error); }
 }
 
@@ -121,6 +124,12 @@ function renderable(value, fallback = '') {
   if (typeof value === 'string') return value.trim() || fallback;
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   return fallback;
+}
+
+function touchButtonText(value) {
+  const text = String(value ?? '');
+  if (!touchMode) return text;
+  return text.replace(/\b(E|Q|L)\b/g, key => TOUCH_BUTTON_LABELS[key]);
 }
 
 function money(value) {
@@ -246,8 +255,12 @@ function renderPrompt(input) {
     return;
   }
   writeText(nodes.promptLabel, prompt?.label ?? '');
-  writeText(nodes.promptHint, prompt?.hint ?? '');
-  writeText(nodes.promptKey, prompt?.key ?? 'E');
+  writeText(nodes.promptHint, touchButtonText(prompt?.hint ?? ''));
+  const key = prompt?.key ?? 'E';
+  const mappedKey = Object.prototype.hasOwnProperty.call(TOUCH_BUTTON_LABELS, key)
+    ? touchButtonText(key)
+    : key;
+  writeText(nodes.promptKey, mappedKey);
   nodes.promptHint.hidden = !prompt?.hint;
 }
 
@@ -795,15 +808,21 @@ function addToast(text, ok) {
   const active = toastRecords.filter(record => !record.exiting);
   if (active.length >= 2) scheduleToastExit(active[0]);
   const toastEl = el('div', `sb-toast ${ok === true ? 'sb-toast-ok' : ok === false ? 'sb-toast-bad' : 'sb-toast-neutral'}`);
-  const copy = el('span', 'sb-toast-copy', message);
+  const copy = el('span', 'sb-toast-copy', touchButtonText(message));
   const count = el('span', 'sb-toast-count');
   count.hidden = true;
   toastEl.append(copy, count);
-  const record = { id: nextToastId++, el: toastEl, countNode: count, text: message,
+  const record = { id: nextToastId++, el: toastEl, copyNode: copy, countNode: count, text: message,
     count: 1, lastAt: now, exiting: false, lifeTimer: 0, removeTimer: 0 };
   toastRecords.push(record);
   nodes.toastStack.append(toastEl);
   armToast(record);
+}
+
+function renderToastText() {
+  for (const record of toastRecords) {
+    writeText(record?.copyNode, touchButtonText(record?.text));
+  }
 }
 
 function clearToasts() {
@@ -1032,7 +1051,8 @@ function buildTouchControls() {
   let stickPointerId = null;
   let stickCentreX = 0;
   let stickCentreY = 0;
-  let stickRadius = 1;
+  let stickVectorRadius = 1;
+  let stickKnobRadius = 1;
   let lastMoveX = 0;
   let lastMoveY = 0;
   let lookPointerId = null;
@@ -1063,12 +1083,15 @@ function buildTouchControls() {
     const dx = finite(event?.clientX, stickCentreX) - stickCentreX;
     const dy = finite(event?.clientY, stickCentreY) - stickCentreY;
     const distance = Math.hypot(dx, dy);
-    const scale = distance > stickRadius ? stickRadius / distance : 1;
+    const scale = distance > stickKnobRadius ? stickKnobRadius / distance : 1;
     const offsetX = dx * scale;
     const offsetY = dy * scale;
     writeStyle(stickKnob, 'transform', `translate3d(${offsetX.toFixed(2)}px, ${offsetY.toFixed(2)}px, 0)`);
-    if (distance / stickRadius < 0.15) emitMove(0, 0);
-    else emitMove(offsetX / stickRadius, -offsetY / stickRadius);
+    if (distance < Math.max(stickVectorRadius * 0.15, 8)) emitMove(0, 0);
+    else {
+      const vectorScale = distance > stickVectorRadius ? stickVectorRadius / distance : 1;
+      emitMove(dx * vectorScale / stickVectorRadius, -dy * vectorScale / stickVectorRadius);
+    }
   };
 
   const releaseStick = () => {
@@ -1088,7 +1111,8 @@ function buildTouchControls() {
     const knobRect = stickKnob.getBoundingClientRect();
     stickCentreX = rect.left + rect.width / 2;
     stickCentreY = rect.top + rect.height / 2;
-    stickRadius = Math.max(1, (Math.min(rect.width, rect.height) - Math.min(knobRect.width, knobRect.height)) / 2);
+    stickVectorRadius = Math.max(1, Math.min(rect.width, rect.height) / 2);
+    stickKnobRadius = Math.max(0, (Math.min(rect.width, rect.height) - Math.min(knobRect.width, knobRect.height)) / 2);
     stickPointerId = event.pointerId;
     toggleClass(stick, 'sb-is-pressed', true);
     try { stick.setPointerCapture?.(stickPointerId); } catch (_) { /* capture is best-effort */ }
