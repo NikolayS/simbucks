@@ -105,7 +105,8 @@ MENU SCREENS  face z = +1.72, tilt -6 deg about X
 
 CORAL ARCH   arc in plane x = -6.90, centre (z -0.50, y 0.40), radius 2.90,
              from z=-3.40 to z=+2.40, tube radius 0.028
-RAIL A       top rail y 1.02 along z = +3.60, x from -8.50 to -1.00
+RAIL A       top rail y 1.02 along z = +3.60, x from -8.50 to -1.00,
+             with a queue entrance gap at x -5.20 .. -4.00
 RAIL B       around merch shelf: x [+6.00 .. +8.60], z [+0.60 .. +3.00]
 
 FRONT COUNTER FURNITURE (all sitting on y = 1.05)
@@ -116,18 +117,30 @@ FRONT COUNTER FURNITURE (all sitting on y = 1.05)
   handoff plane   x [+3.00 .. +4.60], z [+0.90 .. +1.50]   (kind 'pickup')
 
 BAR-BACK STATIONS (on worktop y = 0.95, centred near z = -2.20)
-  cupStack   x -4.60      grinder    x -3.60
+  cupStack   x -5.15      grinder    x -3.60   (cupStack moved west to clear the doorway)
   espresso   x -1.80  (two group heads at x -2.25 and x -1.35)
   steamWand  x -0.95      superauto  x +0.20
   syrupRack  x +1.40      blender    x +2.20
   iceWell    x +3.00      sink       x +3.90
   coldBrewTap  x +4.30, z -1.00 (on the inner east face, tap spout y 1.25)
 
+BACK-OF-HOUSE (layout.backHouse, aliased at layout.kiosk.backHouse)
+  outer x [-6.60 .. +0.60], z [-6.40 .. -3.20], corner radius 1.10, wall 0.70
+  bench tops y 0.95 ; screen wall to y 1.55 on the public side
+  doorway x [-4.90 .. -4.00], cut through BOTH the back-of-house front face
+    and the main ring's rear run, so the two halves are one connected space
+  interior therefore x [-5.90 .. -0.10], z [-5.70 .. -3.90]
+  fittings: prep bench, dish sink, three-tier stock shelving, upright fridge,
+    crate stack, and the two blue water jugs (moved here from the front)
+  The mural continues onto its west elevation: that is what makes the front
+  and back halves read as one shop rather than two objects.
+
 PLAYER   spawn (0, 0, -0.60); eye height 1.62; walk speed 2.6 m/s
-         confined to the inner aisle plus a 0.4 m margin
+         walkable region is the UNION of: the inner aisle plus a 0.4 m margin,
+         the doorway corridor, and the back-of-house interior
 
 QUEUE    order queue slots i=0..7 at  (x = -2.40 - 0.85*i, z = +2.55), facing -Z
-         pickup wait slots j=0..5 at  (x = +3.20 + 0.70*j, z = +2.70), facing -Z
+         pickup wait slots j=0..4 at  (x = +3.20 + 0.70*j, z = +2.70), facing -Z
          customers enter at (x -16, z +6.5) and leave at (x +14, z +6.5)
 
 TERMINAL SHELL
@@ -140,8 +153,9 @@ TERMINAL SHELL
   gate gantry     panel centre (x -1.00, y 4.60, z -8.50), 7.20 x 1.50, faces +Z
   aelia dutyfree  x [-30 .. -16], z [-12 .. -2]
   seating pods    x [-20 .. -11], z [-6 .. +8]
-  communal tables two, 4.60 x 0.80, tops y 1.05, centres (-11.60, +1.20) and (-11.60, +3.40)
-  merch shelf     x [+6.20 .. +8.40], z [+0.80 .. +2.80], three tiers y 0.75/1.05/1.35
+  communal tables two, 4.60 x 0.80, tops y 1.05, centres (-9.40, -0.60) and (-9.40, +5.40),
+                  each rotated 90 deg so their length runs parallel to the mural face
+  merch shelf     x [+6.80 .. +9.00], z [+0.80 .. +2.80], three tiers y 0.75/1.05/1.35
 ```
 
 ## 6. Module ownership (do not touch another owner's files)
