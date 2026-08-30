@@ -321,6 +321,14 @@ The HUD talks to controls only through the bus:
 | `input:look` | `{dx, dy}` | look delta in CSS pixels since the last event |
 | `input:action` | `{action, phase}` | `action` is `'interact' \| 'drop' \| 'lid'`; `phase` is `'tap' \| 'holdStart' \| 'holdEnd'` |
 
+**`input:action` carries no duration, deliberately.** A HUD `tap` reaches
+controls with an elapsed press time of zero, so the emitted `interact` has
+`dt: 0`. That is safe only because `stations.js`'s `handleTap(id)` ignores
+duration entirely. If a tap ever becomes duration-sensitive, this event needs
+a `dt` field and every HUD button has to start timing its press. `holdStart`
+is different: it seeds `pressDuration` with `CONFIG.holdThreshold` so the
+meters receive the same `dt: 0.180` the E key produces at its threshold.
+
 `controls.js` treats `input:action` with `action:'interact'` exactly as it
 treats the E key — it resolves the current centre-screen raycast target and
 emits the existing `interact` event, so `stations.js` needs no change at all.
