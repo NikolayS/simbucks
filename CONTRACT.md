@@ -64,6 +64,11 @@ Interaction is dispatched by `src/game/stations.js`, which listens for
 `bus.emit('interact', { id, phase })` where phase is `'tap' | 'holdStart' |
 'holdEnd'`. Builders never implement gameplay; they only expose meshes.
 
+**Amended in build.** `till` is shared: `customers.js` also subscribes to
+`interact` for that id and is the module that creates the order, while
+`stations.js` supplies the beep and the toast. Two subscribers on one id is
+deliberate, not a bug.
+
 ## 4. Event bus names (the only cross-module coupling)
 | event | payload | emitted by | consumed by |
 |---|---|---|---|
@@ -209,6 +214,13 @@ Also `export function getStationAnchors()` → `{ [id]: THREE.Vector3 }` world
 positions where held items/particles should appear.
 
 ### src/entities/people.js
+**Transform ownership (amended in build):** the CALLER owns the root
+transform. `customers.js` calls `person.update(dt)` and then writes
+`group.position` and `group.rotation.y` itself; `update` must not fight it.
+`walkTo`/`face` are for people.js's own ambient crowd, which nobody else
+drives. People are built facing **+Z** with feet at y = 0, so a driver can
+orient them with `rotation.y = atan2(dir.x, dir.z)`.
+
 ```
 export function makePerson(ctx, opts)  // opts: {role:'barista'|'passenger'|'customer',
                                        //  palette?, bag?, scale?, seed?}
@@ -229,6 +241,12 @@ where a step is `{station, param}` e.g. `{station:'syrupRack', param:3}`.
 `export function makeOrder(ctx, difficulty)` → order object
 `{id, drink, size, name, mods:[], steps:[], progress:[], price, patience, t0}`
 `export function scoreOrder(order, built)` → `{score, tip, correct, notes[]}`
+where `built` is `{drink, drinkId, size, steps:[{station, param, quality, foam?}]}`.
+`built.drink` may be absent, in which case the drink is inferred from the step
+log. `foam` (`'wet'|'micro'|'dry'`) is strictly additive: a step without it is
+never penalised. Latte = wet, Flat White = micro, Cappuccino = dry; wrong
+aeration costs 0.14 and clears the `correct` predicate, which is what keeps the
+three from being interchangeable.
 
 ### src/game/customers.js
 `export function buildCustomers(ctx)` → `{group, update(dt,t), colliders:[]}`
@@ -263,7 +281,11 @@ ticket, emits `order:served` and `station:feedback`.
 export function initHUD(ctx)      // builds DOM into #hud, injects hud.css
 export function setPrompt(text)   // crosshair prompt, '' to clear
 export function setTickets(list)
-export function setMeter(cfg)     // {kind:'dose'|'shot'|'steam'|'blend', value, zone:[a,b]} | null
+export function setMeter(cfg)     // {kind, value, zone:[a,b], text?, label?} | null
+                                  // kinds in use: dose, shot, steam, blend, pour, syrup.
+                                  // Treat the list as a floor, render any kind as a bar,
+                                  // and always prefer `text` over deriving a readout from
+                                  // `value` — 'shot' sends value 0.66 with text '26.4s'.
 export function toast(text, ok)
 export function setStats(state)
 export function showEndCard(summary)

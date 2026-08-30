@@ -474,8 +474,7 @@ function drawMural(g, w, h) {
     g.beginPath();
     g.moveTo(p.x + nx * 3.5, p.y + ny * 3.5);
     g.lineTo(p.x - nx * 3.5, p.y - ny * 3.5);
-    g.lineTo(cx - nx * 1.4, cy - ny * 1.4);
-    g.lineTo(cx + nx * 1.4, cy + ny * 1.4);
+    g.lineTo(cx, cy);
     g.closePath();
     g.fill();
     const count = 3 + Math.floor(rng() * 4);
@@ -483,7 +482,7 @@ function drawMural(g, w, h) {
     for (let j = 0; j < count; j += 1) {
       const a = j * Math.PI * 2 / count + (i % 3) * 0.27;
       const distance = j === 0 ? 0 : baseR * (0.9 + rng() * 0.45);
-      const r = baseR * (0.82 + rng() * 0.28);
+      const r = baseR * 1.3 * (j === 0 ? 1 : 0.82 + rng() * 0.28);
       cherry(g, cx + Math.cos(a) * distance, cy + Math.sin(a) * distance, r, clusterColors[(i + j) % 3]);
     }
   }
@@ -515,8 +514,8 @@ function drawRoundel(g, w, h) {
   const tailCurves = [
     [[120, 372], [86, 318], [96, 252]],
     [[104, 220], [128, 206], [150, 214]],
-    [[126, 232], [122, 282], [140, 318]],
-    [[156, 348], [180, 366], tailStart],
+    [[154, 234], [158, 280], [140, 318]],
+    [[162, 350], [184, 370], tailStart],
   ];
   const drawTail = (reflect) => {
     const point = reflect ? mirror : (value) => value;
@@ -535,15 +534,15 @@ function drawRoundel(g, w, h) {
   const tailCrescents = [
     [
       [125, 323],
-      [[110, 313], [109, 290], [120, 277]],
-      [[115, 293], [120, 309], [134, 317]],
-      [[131, 321], [128, 323], [125, 323]],
+      [[124, 313], [124, 299], [127, 291]],
+      [[126, 301], [127, 313], [130, 321]],
+      [[128, 323], [127, 324], [125, 323]],
     ],
     [
       [115, 264],
-      [[114, 247], [123, 231], [142, 225]],
-      [[130, 234], [124, 248], [125, 264]],
-      [[121, 265], [118, 265], [115, 264]],
+      [[115, 253], [116, 239], [121, 232]],
+      [[119, 241], [119, 253], [121, 263]],
+      [[119, 264], [117, 265], [115, 264]],
     ],
   ];
   const drawTailCrescent = (crescent, reflect) => {
@@ -590,11 +589,11 @@ function drawRoundel(g, w, h) {
     g.moveTo(...point([236, 286]));
     g.bezierCurveTo(...point([206, 258]), ...point([176, 214]), ...point([156, 182]));
     g.lineTo(...point([172, 196]));
-    g.bezierCurveTo(...point([196, 222]), ...point([222, 264]), ...point([252, 296]));
+    g.bezierCurveTo(...point([215, 222]), ...point([243, 267]), ...point([252, 296]));
     g.closePath();
     g.fill();
     g.beginPath();
-    g.arc(...point([152, 176]), 16, 0, Math.PI * 2);
+    g.arc(...point([152, 176]), 18, 0, Math.PI * 2);
     g.fill();
   };
   drawArm(false);
@@ -1006,11 +1005,17 @@ function drawInMotion(g, w, h) {
   g.stroke();
   g.fillStyle = '#14161A';
   g.fillText('TION', discX + discRadius + sideBearing, baseline);
-  const badges = [730, 940];
+  const tionX = discX + discRadius + sideBearing;
+  const wordmarkRight = tionX + g.measureText('TION').width;
+  const badgeRadius = 72;
+  const firstBadgeX = wordmarkRight + 70 + badgeRadius;
+  const badgeSpacing = badgeRadius * 2.4;
+  const secondBadgeX = firstBadgeX + badgeSpacing;
+  const badges = [firstBadgeX, secondBadgeX];
   for (const x of badges) {
     g.fillStyle = '#1E7A46';
     g.beginPath();
-    g.arc(x, 128, 82, 0, Math.PI * 2);
+    g.arc(x, 128, badgeRadius, 0, Math.PI * 2);
     g.fill();
     for (const [word, y] of [['JUST', 120], ['LANDED', 153]]) {
       g.font = '800 24px "Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif';
@@ -1020,21 +1025,33 @@ function drawInMotion(g, w, h) {
   }
   g.textAlign = 'left';
   g.fillStyle = '#14161A';
-  g.font = '600 54px "Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif';
-  g.fillText('Brand new from Bose', 1110, 105);
-  g.font = '900 66px "Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif';
-  g.fillText('£299.99', 1110, 183);
+  const headline = 'Brand new from Bose';
+  const price = '£299.99';
+  const copyX = secondBadgeX + badgeRadius + 70;
+  g.font = '600 50px "Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif';
+  const headlineWidth = g.measureText(headline).width;
+  g.fillText(headline, copyX, 105);
+  g.font = '900 62px "Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif';
+  const priceWidth = g.measureText(price).width;
+  g.fillText(price, copyX, 183);
+  const copyRight = copyX + Math.max(headlineWidth, priceWidth);
+  const headphoneHalfWidth = 101;
+  const headphoneX = copyRight + 54 + headphoneHalfWidth;
+  console.assert(firstBadgeX - badgeRadius - wordmarkRight >= 70, 'First roundel overlaps the wordmark');
+  console.assert(secondBadgeX - firstBadgeX >= badgeRadius * 2.4, 'Roundels are too close');
+  console.assert(copyX - (secondBadgeX + badgeRadius) >= 70, 'Copy overlaps the second roundel');
+  console.assert(headphoneX + headphoneHalfWidth <= w, 'InMotion banner content exceeds the canvas');
   g.strokeStyle = '#14161A';
   g.lineWidth = 14;
   g.lineCap = 'round';
   g.beginPath();
-  g.arc(1850, 126, 83, Math.PI * 1.08, Math.PI * 1.92);
+  g.arc(headphoneX, 126, 83, Math.PI * 1.08, Math.PI * 1.92);
   g.stroke();
   g.fillStyle = '#14161A';
-  roundRect(g, 1749, 113, 39, 88, 16); g.fill();
-  roundRect(g, 1912, 113, 39, 88, 16); g.fill();
-  hairline(g, 1784, 166, 1803, 183, '#14161A', 10);
-  hairline(g, 1916, 166, 1897, 183, '#14161A', 10);
+  roundRect(g, headphoneX - 101, 113, 39, 88, 16); g.fill();
+  roundRect(g, headphoneX + 62, 113, 39, 88, 16); g.fill();
+  hairline(g, headphoneX - 66, 166, headphoneX - 47, 183, '#14161A', 10);
+  hairline(g, headphoneX + 66, 166, headphoneX + 47, 183, '#14161A', 10);
 }
 
 function drawBrandPlaques(g, w, h) {
@@ -1168,35 +1185,72 @@ function drawGateSign(g, w, h) {
   g.lineWidth = 3;
   g.strokeRect(8, 8, w - 16, h - 16);
   hairline(g, w / 2, 20, w / 2, 344, '#555960', 2);
-  const gateFont = '600 150px "Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif';
-  const leftGate = '1-28';
-  const rightGate = '30-43';
-  const leftGateX = 220;
-  const rightGateX = 1080;
+  const minGap = 46;
+  const arrowWidth = 128;
+  const arrowHeight = 96;
+  const manScale = 0.76;
+  const manLeft = -47 * manScale;
+  const manWidth = 88 * manScale;
   const gateBaseline = 246;
-  g.font = gateFont;
-  const leftGateCenter = leftGateX + g.measureText(leftGate).width / 2;
-  const rightGateCenter = rightGateX + g.measureText(rightGate).width / 2;
-  aircraft(g, leftGateCenter, 64, 0.64, false);
-  aircraft(g, rightGateCenter, 64, 0.64, true);
-  g.fillStyle = '#FFFFFF';
-  arrowPath(g, 115, 195, 150, 108, false); g.fill();
-  g.font = gateFont;
-  g.fillText(leftGate, leftGateX, gateBaseline);
-  walkingMan(g, 718, 190, 0.96);
-  g.font = '600 62px "Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif';
-  g.textAlign = 'right';
-  g.fillText('15 mins', w / 2 - 40, 218);
+  const minuteBaseline = 218;
+  const layoutHalf = (spanLeft, spanRight, gateLabel, minuteLabel, order, planeRight) => {
+    let gateSize = 126;
+    let minuteSize = 48;
+    let gateFont;
+    let minuteFont;
+    let gateWidth;
+    let minuteWidth;
+    do {
+      gateFont = `600 ${gateSize}px "Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif`;
+      minuteFont = `600 ${minuteSize}px "Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif`;
+      g.font = gateFont;
+      gateWidth = g.measureText(gateLabel).width;
+      g.font = minuteFont;
+      minuteWidth = g.measureText(minuteLabel).width;
+      if (arrowWidth + gateWidth + manWidth + minuteWidth + minGap * 3 <= spanRight - spanLeft) break;
+      gateSize -= 2;
+      minuteSize -= 1;
+    } while (gateSize >= 100 && minuteSize >= 38);
+
+    const widths = {
+      arrow: arrowWidth,
+      gate: gateWidth,
+      man: manWidth,
+      minutes: minuteWidth,
+    };
+    const occupiedWidth = order.reduce((total, name) => total + widths[name], 0);
+    const gap = (spanRight - spanLeft - occupiedWidth) / (order.length - 1);
+    const positions = {};
+    let cursor = spanLeft;
+    for (const name of order) {
+      positions[name] = cursor;
+      cursor += widths[name] + gap;
+    }
+    const lastName = order[order.length - 1];
+    const lastRight = positions[lastName] + widths[lastName];
+    console.assert(gap >= minGap, `${gateLabel} gate-sign gap is below ${minGap}px`);
+    console.assert(lastRight <= spanRight, `${gateLabel} gate-sign content exceeds its half`);
+
+    aircraft(g, positions.gate + gateWidth / 2, 64, 0.64, planeRight);
+    for (const name of order) {
+      g.fillStyle = '#FFFFFF';
+      if (name === 'arrow') {
+        arrowPath(g, positions.arrow + arrowWidth / 2, 195, arrowWidth, arrowHeight, planeRight);
+        g.fill();
+      } else if (name === 'gate') {
+        g.font = gateFont;
+        g.fillText(gateLabel, positions.gate, gateBaseline);
+      } else if (name === 'man') {
+        walkingMan(g, positions.man - manLeft, 190, manScale);
+      } else {
+        g.font = minuteFont;
+        g.fillText(minuteLabel, positions.minutes, minuteBaseline);
+      }
+    }
+  };
   g.textAlign = 'left';
-  g.font = gateFont;
-  g.fillText(rightGate, rightGateX, gateBaseline);
-  g.fillStyle = '#FFFFFF';
-  arrowPath(g, 1658, 195, 150, 108, true); g.fill();
-  walkingMan(g, 1768, 190, 0.92);
-  g.font = '600 62px "Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif';
-  g.textAlign = 'right';
-  g.fillText('10 mins', w - 40, 218);
-  g.textAlign = 'left';
+  layoutHalf(40, 984, '1-28', '15 mins', ['arrow', 'gate', 'man', 'minutes'], false);
+  layoutHalf(1064, 2008, '30-43', '10 mins', ['gate', 'arrow', 'man', 'minutes'], true);
   g.fillStyle = '#1E7A46';
   g.fillRect(0, 344, w / 2, 76);
   g.fillRect(w / 2 + 2, 344, w / 2 - 2, 76);
@@ -1428,9 +1482,46 @@ function drawPastryTray(g, w, h) {
   g.lineWidth = 2;
   for (let x = 12; x < w; x += 24) hairline(g, x, 0, x, h, '#2A2C31', 2);
   for (let y = 12; y < h; y += 24) hairline(g, 0, y, w, y, '#2A2C31', 2);
-  for (const x of [85, 256, 427]) croissant(g, x, 105, 1.12);
-  for (const x of [66, 237, 408]) pain(g, x, 255, 1.15);
-  for (let i = 0; i < 3; i += 1) muffin(g, 105 + i * 171, 390, 1.12, 0xB010 + i);
+  const itemPitch = 142;
+  const evenRow = [58, 58 + itemPitch, 58 + itemPitch * 2, 58 + itemPitch * 3];
+  const offsetRow = [58 + itemPitch / 2, 58 + itemPitch * 1.5, 58 + itemPitch * 2.5];
+  for (const x of evenRow) croissant(g, x, 92, 1.34);
+
+  const fullPain = (x, y, scale) => {
+    g.save();
+    g.translate(x, y);
+    g.scale(scale, scale);
+    g.fillStyle = '#A86E37';
+    roundRect(g, -55, -36, 110, 72, 24);
+    g.fill();
+    g.fillStyle = '#D9A45E';
+    g.beginPath();
+    g.moveTo(-49, -5);
+    g.bezierCurveTo(-45, -32, -26, -43, 0, -45);
+    g.bezierCurveTo(26, -43, 45, -32, 49, -5);
+    g.quadraticCurveTo(24, 6, 0, 7);
+    g.quadraticCurveTo(-24, 6, -49, -5);
+    g.closePath();
+    g.fill();
+    g.strokeStyle = '#9B6332';
+    g.lineWidth = 3;
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(0, -40);
+    g.bezierCurveTo(-3, -22, 3, 7, 0, 29);
+    g.stroke();
+    g.fillStyle = '#4A2C22';
+    for (const endX of [-50, 50]) {
+      for (const batonY of [-12, 13]) {
+        g.beginPath();
+        g.ellipse(endX, batonY, 6, 4.5, 0, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    g.restore();
+  };
+  for (const x of offsetRow) fullPain(x, 238, 1.3);
+  for (let i = 0; i < evenRow.length; i += 1) muffin(g, evenRow[i], 374, 1.26, 0xB010 + i);
   g.strokeStyle = '#54575D';
   g.lineWidth = 8;
   g.strokeRect(6, 6, w - 12, h - 12);
@@ -1491,7 +1582,34 @@ function drawBeans(g, w, h) {
     const ry = rx / (1.31 + rng() * 0.08);
     const angle = rng() * Math.PI * 2;
     const fill = colors[Math.floor(rng() * colors.length)];
-    dotWrapped(g, x, y, rx + 2, w, h, (xx, yy) => beanShape(g, xx, yy, rx, ry, angle, fill));
+    dotWrapped(g, x, y, rx + 2, w, h, (xx, yy) => {
+      g.save();
+      g.translate(xx, yy);
+      g.rotate(angle);
+      g.fillStyle = fill;
+      g.beginPath();
+      g.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+      g.fill();
+
+      const creaseLength = rx * 0.78;
+      const creaseHalfWidth = rx * 0.075;
+      g.fillStyle = darker(fill, 0.45);
+      g.beginPath();
+      g.moveTo(-creaseLength, -creaseHalfWidth * 0.35);
+      g.bezierCurveTo(-rx * 0.34, -creaseHalfWidth * 1.15, rx * 0.2, creaseHalfWidth * 1.15, creaseLength, creaseHalfWidth * 0.35);
+      g.bezierCurveTo(rx * 0.2, creaseHalfWidth * 0.15, -rx * 0.34, -creaseHalfWidth * 0.15, -creaseLength, -creaseHalfWidth * 0.35);
+      g.closePath();
+      g.fill();
+
+      g.strokeStyle = darker(fill, 0.72);
+      g.lineWidth = 1;
+      g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(-creaseLength * 0.92, creaseHalfWidth + 0.5);
+      g.bezierCurveTo(-rx * 0.3, 0, rx * 0.22, creaseHalfWidth * 1.8, creaseLength * 0.9, creaseHalfWidth + 0.7);
+      g.stroke();
+      g.restore();
+    });
   }
 }
 
@@ -1524,10 +1642,16 @@ function drawTumblerLid(g, w, h) {
   g.fillStyle = '#E9E9E6';
   g.beginPath(); g.arc(64, 64, 48, 0, Math.PI * 2); g.fill();
   g.strokeStyle = '#D7D7D3'; g.lineWidth = 2; g.stroke();
+  g.strokeStyle = '#C9C9C5';
+  g.lineWidth = 2;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.arc(64, 51, 25, 0.16 * Math.PI, 0.84 * Math.PI);
+  g.stroke();
   g.fillStyle = '#00704A';
-  g.beginPath(); g.arc(64, 64, 15, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(64, 70, 15, 0, Math.PI * 2); g.fill();
   g.fillStyle = '#34373A';
-  g.beginPath(); g.arc(64, 34, 15, 0.1 * Math.PI, 0.9 * Math.PI); g.arc(64, 38, 9, 0.9 * Math.PI, 0.1 * Math.PI, true); g.fill();
+  g.beginPath(); g.ellipse(64, 34, 13, 7, 0, 0, Math.PI * 2); g.fill();
 }
 
 function drawApronPatch(g, w, h) {
