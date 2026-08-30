@@ -886,7 +886,7 @@ function buildScreens() {
   const wordmark = el('h1', 'sb-wordmark');
   wordmark.append(document.createTextNode('SIM'), el('span', 'sb-wordmark-star', '✱'), document.createTextNode('BUCKS'));
   const rule = el('div', 'sb-title-rule');
-  const premise = el('p', 'sb-premise', 'Gatwick, 05:00. Two gates are boarding. Make the coffee.');
+  const premise = el('p', 'sb-premise', 'Luton, 05:00. Two gates are boarding. Make the coffee.');
   const controls = el('div', 'sb-controls sb-controls-desktop');
   const bindings = [
     ['MOUSE', 'look'], ['WASD', 'move'], ['E', 'act'], ['HOLD E', 'meters'],

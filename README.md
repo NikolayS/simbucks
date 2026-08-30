@@ -1,7 +1,7 @@
 # SIM&#10033;BUCKS
 
 A first-person barista simulator that runs in your browser. You work the bar at a
-coffee kiosk in a London airport departures concourse: flights board, the queue
+coffee kiosk in London Luton airport's departures concourse: flights board, the queue
 builds, and you grind, pull, steam and pour your way through the morning rush.
 
 Built with [three.js](https://threejs.org) r180. No build step, no bundler, no

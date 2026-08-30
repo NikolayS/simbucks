@@ -1,6 +1,6 @@
 # SIM*BUCKS — Airport Coffee Kiosk Simulator (three.js)
 
-A first-person barista simulator set in a coffee kiosk in a London airport
+A first-person barista simulator set in a coffee kiosk at London Luton airport
 departures concourse. Reconstructed from two reference photographs. No external
 assets: every texture is drawn procedurally to a canvas, every sound is
 synthesised with WebAudio, every mesh is built from three.js primitives.
