@@ -23,7 +23,7 @@ export const LAYOUT = Object.freeze({
   arch: { x: -6.90, cz: -0.50, cy: 0.40, r: 2.90, z0: -3.40, z1: 2.40, tube: 0.028 },
   rails: {
     a: { y: 1.02, z: 3.60, x0: -8.50, x1: -1.00 },
-    b: { y: 1.02, x0: 6.00, x1: 8.60, z0: 0.60, z1: 3.00 },
+    b: { y: 1.02, x0: 6.60, x1: 9.20, z0: 0.60, z1: 3.00 },
   },
   front: {
     till:       { x: -2.40, z: 1.15 },
@@ -47,7 +47,7 @@ export const LAYOUT = Object.freeze({
   player: { spawn: { x: 0, z: -0.60 }, eye: 1.62, speed: 2.6, margin: 0.40 },
   queue: {
     order:  { x: -2.40, dx: -0.85, z: 2.55, n: 8 },
-    pickup: { x:  3.20, dx:  0.70, z: 2.70, n: 6 },
+    pickup: { x:  3.20, dx:  0.70, z: 2.70, n: 5 },
     enter: { x: -16, z: 6.5 },
     exit:  { x:  14, z: 6.5 },
   },
@@ -65,7 +65,7 @@ export const LAYOUT = Object.freeze({
     seating: { x0: -20, x1: -11, z0: -6, z1: 8 },
     tables: [{ x: -11.60, z: 1.20 }, { x: -11.60, z: 3.40 }],
     tableSize: { w: 4.60, d: 0.80, h: 1.05 },
-    merch: { x0: 6.20, x1: 8.40, z0: 0.80, z1: 2.80, tiers: [0.75, 1.05, 1.35] },
+    merch: { x0: 6.80, x1: 9.00, z0: 0.80, z1: 2.80, tiers: [0.75, 1.05, 1.35] },
   },
   palette: {
     coral: 0xE2593C, oak: 0xC8A57B, oakGrain: 0xA8865C, worktop: 0xEDE8E0,
