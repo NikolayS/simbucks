@@ -47,17 +47,18 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  ctx?.pipeline?.resize?.(innerWidth, innerHeight);
 });
 
 const [tex, materials, audio, terminal, props, kiosk, equipment, people, menu, orders,
-       customers, gstate, controls, hands, stations, hud] = await Promise.all([
+       customers, gstate, controls, hands, stations, hud, renderMod] = await Promise.all([
   soft('./gfx/textures.js'), soft('./gfx/materials.js'), soft('./gfx/audio.js'),
   soft('./world/terminal.js'), soft('./world/props.js'),
   soft('./world/kiosk.js'), soft('./world/equipment.js'),
   soft('./entities/people.js'),
   soft('./game/menu.js'), soft('./game/orders.js'), soft('./game/customers.js'), soft('./game/state.js'),
   soft('./player/controls.js'), soft('./player/hands.js'), soft('./game/stations.js'),
-  soft('./ui/hud.js'),
+  soft('./ui/hud.js'), soft('./gfx/render.js'),
 ]);
 
 const ctx = {
@@ -96,14 +97,21 @@ mount('equipment', guard('equipment', () => equipment.buildEquipment?.(ctx)));
 mount('crowd', guard('people.crowd', () => people.buildCrowd?.(ctx)));
 mount('baristas', guard('people.baristas', () => people.buildBaristaNPCs?.(ctx)));
 
-if (!scene.children.some(o => o.isLight)) {
+function sceneHas(test) {
+  let found = false;
+  scene.traverse(o => { if (!found && test(o)) found = true; });
+  return found;
+}
+// These must recurse: builders return Groups, so a top-level check never sees
+// the lights or the floor inside them and the fallbacks get added on top.
+if (!sceneHas(o => o.isLight)) {
   const hemi = new THREE.HemisphereLight(0xFFF6E8, 0x8C7F70, 2.1);
   scene.add(hemi);
   const dir = new THREE.DirectionalLight(0xFFFFFF, 1.1);
   dir.position.set(6, 12, 8);
   scene.add(dir);
 }
-if (!scene.children.some(o => o.userData?.isFloor)) {
+if (!sceneHas(o => o.userData?.isFloor)) {
   const f = new THREE.Mesh(new THREE.PlaneGeometry(68, 60),
     new THREE.MeshStandardMaterial({ color: LAYOUT.palette.floor, roughness: 0.55 }));
   f.rotation.x = -Math.PI / 2; f.receiveShadow = true; f.userData.isFloor = true;
@@ -151,6 +159,17 @@ if (!player) {
   });
 }
 
+// Environment map first: metals need something to reflect before they read as
+// metal at all. Then the post chain. Either may fail without blanking the game.
+const envMap = guard('render.environment', () => renderMod.buildEnvironment?.(ctx), null);
+if (envMap) scene.environment = envMap;
+const pipeline = guard('render.pipeline', () => renderMod.createRenderPipeline?.(ctx), null);
+ctx.pipeline = pipeline;
+const draw = () => {
+  if (pipeline?.render) { try { return pipeline.render(); } catch (e) { report('pipeline.render', e); ctx.pipeline = null; } }
+  renderer.render(scene, camera);
+};
+
 // The shift must not begin until the player dismisses the title card, or the
 // clock (and the queue) runs while they are still reading the controls.
 const beginShift = () => guard('state.start', () => gstate.startShift?.(ctx));
@@ -173,7 +192,7 @@ function frame(dt, t) {
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
   frame(dt, clock.elapsedTime);
-  renderer.render(scene, camera);
+  draw();
   acc += dt; frames++;
   if (acc > 1) { ctx.fps = Math.round(frames / acc); acc = 0; frames = 0; }
 });
@@ -183,7 +202,7 @@ renderer.setAnimationLoop(() => {
 let stepT = 0;
 ctx.step = (steps = 1, dt = 1 / 60) => {
   for (let i = 0; i < steps; i++) { stepT += dt; frame(dt, stepT); }
-  renderer.render(scene, camera);
+  draw();
   return { steps, simulated: +(steps * dt).toFixed(2) };
 };
 
