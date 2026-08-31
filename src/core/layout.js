@@ -82,6 +82,12 @@ export const LAYOUT = Object.freeze({
     gateSign: { x: -1.00, y: 4.60, z: -8.50, w: 7.20, h: 1.50 },
     aelia: { x0: -30, x1: -16, z0: -12, z1: -2 },
     seating: { x0: -20, x1: -11, z0: -6, z1: 8 },
+    // Per-seat coordinates, so chairs and the people sitting on them are
+    // derived from one source instead of two agents guessing the same grid.
+    seatGrid: {
+      x0: -19.40, pitch: 0.62, perBank: 6, seatTop: 0.45,
+      rows: [-5.2, -2.4, 0.4, 3.2, 6.0],
+    },
     tables: [{ x: -9.40, z: -0.60, rotY: Math.PI / 2 }, { x: -9.40, z: 5.40, rotY: Math.PI / 2 }],
     tableSize: { w: 4.60, d: 0.80, h: 1.05 },
     merch: { x0: 6.80, x1: 9.00, z0: 0.80, z1: 2.80, tiers: [0.75, 1.05, 1.35] },

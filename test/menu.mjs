@@ -159,6 +159,7 @@ if (problems.length) process.exitCode = 1;
 
 // --- score feedback, note classification, fault tally, and training-mode coverage ---
 const state = await import(REPO + '/game/state.js');
+const customers = await import(REPO + '/game/customers.js');
 const coverageFailures = [];
 function coverageCheck(ok, message) {
   console.log((ok ? 'ok' : 'FAIL') + ' ' + message);
@@ -390,6 +391,61 @@ coverageCheck(state.patienceScale({ training: true }) === 0.4,
   'training patience scale is 0.4');
 coverageCheck(state.patienceScale({ training: false }) === 1,
   'non-training patience scale is 1');
+
+function makeCustomerPatienceProbe(training) {
+  const probeBus = createBus();
+  const probeState = state.createState();
+  probeState.phase = 'playing';
+  probeState.training = training;
+  const probeCtx = {
+    THREE,
+    scene: new THREE.Scene(),
+    layout: LAYOUT,
+    mat: { get: () => new THREE.MeshStandardMaterial() },
+    tex: {},
+    audio: { play() {} },
+    bus: probeBus,
+    rng: mulberry32(101),
+    state: probeState,
+  };
+  let order = null;
+  probeBus.on('order:new', payload => { order = payload?.order ?? null; });
+  const module = customers.buildCustomers(probeCtx);
+  probeCtx.scene.add(module.group);
+  return { ctx: probeCtx, bus: probeBus, module, get order() { return order; } };
+}
+
+const trainingPatienceProbe = makeCustomerPatienceProbe(true);
+const regularPatienceProbe = makeCustomerPatienceProbe(false);
+const customerApproachDts = [0.1, 0.08, 0.06, 0.09];
+for (let frame = 0; frame < 500
+    && (!trainingPatienceProbe.order || !regularPatienceProbe.order); frame++) {
+  const dt = customerApproachDts[frame % customerApproachDts.length];
+  for (const probe of [trainingPatienceProbe, regularPatienceProbe]) {
+    probe.ctx.state.tSec += dt;
+    probe.module.update(dt, probe.ctx.state.tSec);
+    probe.bus.emit('interact', { id: 'till', phase: 'tap' });
+  }
+}
+coverageCheck(Boolean(trainingPatienceProbe.order && regularPatienceProbe.order),
+  'real customer loops reach the pickup patience timer');
+if (trainingPatienceProbe.order && regularPatienceProbe.order) {
+  const pickupDts = [0.1, 0.075, 0.05, 0.1];
+  for (const dt of pickupDts) {
+    for (const probe of [trainingPatienceProbe, regularPatienceProbe]) {
+      probe.ctx.state.tSec += dt;
+      probe.module.update(dt, probe.ctx.state.tSec);
+    }
+  }
+  const trainingDrain = trainingPatienceProbe.order.patience
+    - trainingPatienceProbe.order.tLeft;
+  const regularDrain = regularPatienceProbe.order.patience
+    - regularPatienceProbe.order.tLeft;
+  coverageCheck(Math.abs(trainingDrain - regularDrain * 0.4) < 1e-8,
+    'real customer pickup patience drains at 40% in training');
+}
+trainingPatienceProbe.module.dispose();
+regularPatienceProbe.module.dispose();
 
 state.startShift(stateCtx);
 const moneyBeforeTrainingServe = stateCtx.state.money;

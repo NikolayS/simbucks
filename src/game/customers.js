@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { makeOrder, setShiftTime } from './orders.js';
+import { patienceScale } from './state.js';
 import { makePerson } from '../entities/people.js';
 
 const SPEED = 1.25, MAX_ACTIVE = 14, POOL_CAP = 18;
@@ -36,10 +37,16 @@ const QUEUE_LINES = Object.freeze([
 const IDLES = Object.freeze(['phone', 'menu', 'shift', 'ahead']);
 const BAGS = Object.freeze(['backpack', 'tote', 'roller', null]);
 const PEOPLE_PALETTES = Object.freeze([
-  Object.freeze({ cloth: 0x59636B, accent: 0x7E3F49, skin: 0xD8A17C }),
-  Object.freeze({ cloth: 0x53615A, accent: 0xB28A55, skin: 0xB97855 }),
-  Object.freeze({ cloth: 0x6A6175, accent: 0x46647B, skin: 0x8B5A43 }),
-  Object.freeze({ cloth: 0x746658, accent: 0x6B7D52, skin: 0xE0B18A }),
+  Object.freeze({ cloth: 0x59636B, accent: 0x7E3F49, skin: 0xD8A17C }), // slate grey / maroon
+  Object.freeze({ cloth: 0x53615A, accent: 0xB28A55, skin: 0xB97855 }), // moss grey / tan
+  Object.freeze({ cloth: 0x6A6175, accent: 0x46647B, skin: 0x8B5A43 }), // mauve / steel blue
+  Object.freeze({ cloth: 0x746658, accent: 0x6B7D52, skin: 0xE0B18A }), // taupe / olive
+  Object.freeze({ cloth: 0x2E3B52, accent: 0x3A3F47, skin: 0xEFC6A2 }), // navy / charcoal
+  Object.freeze({ cloth: 0xE4DCC8, accent: 0x36435C, skin: 0xA06A4A }), // cream / navy
+  Object.freeze({ cloth: 0x3B3F44, accent: 0x9C5B3A, skin: 0x6E4630 }), // charcoal / rust
+  Object.freeze({ cloth: 0x7C93A6, accent: 0xD9D2C2, skin: 0xC98D68 }), // dusty blue / cream
+  Object.freeze({ cloth: 0x5D6647, accent: 0xA79A7B, skin: 0x9A674E }), // olive / khaki
+  Object.freeze({ cloth: 0x6B3B45, accent: 0x6E747A, skin: 0xE8C9A8 }), // burgundy / grey
 ]);
 
 // Shared movement scratch: customer records keep their own canonical position.
@@ -122,9 +129,9 @@ export function buildCustomers(ctx) {
       fallbackTorsoGeometry = new THREE.CapsuleGeometry(0.28, 0.49, 4, 8);
       fallbackHeadGeometry = new THREE.SphereGeometry(0.19, 10, 7);
       fallbackMaterials = {
-        travel: [0x56636B, 0x6D5F55, 0x536557, 0x665D70].map(color =>
+        travel: PEOPLE_PALETTES.map(palette => palette.cloth).map(color =>
           new THREE.MeshStandardMaterial({ color, roughness: 0.86 })),
-        skin: [0xE2B18A, 0xC98D68, 0x9A674E, 0x714735].map(color =>
+        skin: PEOPLE_PALETTES.map(palette => palette.skin).map(color =>
           new THREE.MeshStandardMaterial({ color, roughness: 0.9 })),
       };
     }
@@ -356,7 +363,8 @@ export function buildCustomers(ctx) {
         targetYaw = Math.atan2(menuX - c.pos.x, finite(layout.menu?.z) - c.pos.z);
       } else if (c.idleKind === 'phone') {
         targetYaw += c.yawOffset;
-        yOffset = Math.sin(t * 2.2 + c.sway) * 0.012;
+        // Feet sit at y ~ 0, so the bob may only lift.
+        yOffset = (Math.sin(t * 2.2 + c.sway) * 0.5 + 0.5) * 0.012;
       } else if (c.idleKind === 'shift') {
         xOffset = Math.sin(t * (Math.PI * 2 / 2.6) + c.sway) * 0.06;
       } else if (c.idleKind === 'ahead') {
@@ -507,17 +515,18 @@ export function buildCustomers(ctx) {
     if (spawning && ctx?.state?.phase === 'playing') processSpawns();
     promoteHolds();
     const playing = ctx?.state?.phase === 'playing';
+    const scale = patienceScale(ctx?.state);
     for (let i = active.length - 1; i >= 0; i--) {
       const c = active[i];
       safePersonCall(c.person, 'update', dt);
       c.tMode += dt;
       if (playing && (c.mode === 'walkIn' || c.mode === 'hold'
           || c.mode === 'queue' || c.mode === 'ordering')) {
-        c.qWait += dt;
+        c.qWait += dt * scale;
         if (c.qWait > QUEUE_PATIENCE(ctx?.state?.difficulty)) lose(c, 'queue');
       }
       if (playing && (c.mode === 'toPickup' || c.mode === 'waiting')) {
-        c.tLeft -= dt;
+        c.tLeft -= dt * scale;
         if (c.order) {
           c.order.tLeft = c.tLeft;
           c.order.patienceFrac = clamp(c.tLeft / c.order.patience, 0, 1);
