@@ -1528,6 +1528,8 @@ export function createStations(context) {
       contents,
     };
     const served = { order: chosen, score, tip, notes, tip_text: tipText, correct, built };
+    // Keep faults absent when no array is provided so state.js can fall back to faultsFromNotes.
+    if (Array.isArray(result?.faults)) served.faults = result.faults.slice();
 
     removePending(chosen);
     emit('order:served', served);

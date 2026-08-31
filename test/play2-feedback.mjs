@@ -9,6 +9,8 @@ const { createBus } = await import(REPO + 'core/bus.js');
 const { mulberry32 } = await import(REPO + 'core/rng.js');
 const controls = await import(REPO + 'player/controls.js');
 const stationsMod = await import(REPO + 'game/stations.js');
+const menu = await import(REPO + 'game/menu.js');
+const orders = await import(REPO + 'game/orders.js');
 const materials = await import(REPO + 'gfx/materials.js');
 
 const fails = [];
@@ -275,6 +277,98 @@ console.log('\n=== 11.1: no stale metric leaks into the next drink ===');
     if (anyEspresso) throw new Error('drink 2 grew an espresso step');
     const leaked = (second.steps || []).filter(x => 'seconds' in x);
     if (leaked.length) throw new Error('stale seconds leaked: ' + JSON.stringify(leaked));
+  });
+}
+
+console.log('\n=== 11.1: order:served forwards fault facts defensively ===');
+{
+  function serveWith(result, id) {
+    const w = makeWorld();
+    w.ctx.orders.__next = result;
+    w.bus.emit('order:new', { order: w.order(id) });
+    w.hold('cupStack', 0.35);
+    w.tap('handoff'); w.frames(6);
+    return w;
+  }
+
+  const source = [{ code: 'wrongDrink', label: 'Wrong drink' }];
+  const withFaults = serveWith({
+    score: 0.2,
+    tip: 0,
+    correct: false,
+    notes: ['Wrong drink — that is an Americano, the ticket says a Latte'],
+    faults: source,
+  }, 'o-faults');
+  check('faults is forwarded verbatim', () => {
+    const faults = withFaults.served[0].raw.faults;
+    if (!Array.isArray(faults) || faults.length !== 1) throw new Error(JSON.stringify(faults));
+    if (faults[0].code !== 'wrongDrink' || faults[0].label !== 'Wrong drink') {
+      throw new Error(JSON.stringify(faults[0]));
+    }
+  });
+  check('faults is a copy, not the scoreOrder array', () => {
+    const faults = withFaults.served[0].raw.faults;
+    if (faults === withFaults.ctx.orders.__next.faults) throw new Error('same array object');
+    faults.push({ code: 'wrongSize', label: 'Wrong size' });
+    if (withFaults.ctx.orders.__next.faults.length !== 1) throw new Error('source array was mutated');
+  });
+  check('missing faults leaves the payload key absent', () => {
+    const w = serveWith({ score: 0.2, tip: 0, correct: false, notes: ['Wrong size'] }, 'o-no-faults');
+    const payload = w.served[0].raw;
+    if ('faults' in payload) throw new Error('faults key was present: ' + JSON.stringify(payload.faults));
+  });
+  check('malformed faults values are not forwarded', () => {
+    for (const [id, malformed] of [
+      ['o-string-faults', 'wrongDrink'],
+      ['o-object-faults', { code: 'wrongDrink' }],
+    ]) {
+      const w = serveWith({ score: 0.2, tip: 0, correct: false, notes: [], faults: malformed }, id);
+      const payload = w.served[0].raw;
+      if ('faults' in payload) throw new Error(id + ' forwarded ' + JSON.stringify(payload.faults));
+    }
+  });
+}
+
+console.log('\n=== 11.1: fault facts agree with rendered prose ===');
+{
+  const latte = menu.getDrink('latte');
+  const order = {
+    id: 'o-fact-prose', drink: latte, size: 'grande', name: 'Nik', mods: [],
+    steps: menu.recipeFor(latte, 'grande'), progress: [], price: latte.price,
+    patience: 60, t0: 0,
+  };
+  const built = {
+    drink: 'latte',
+    drinkId: 'latte',
+    size: 'tall',
+    lidded: true,
+    blended: false,
+    quality: 0.55,
+    seconds: 30,
+    contents: { espresso: 2, milk: 2, foam: 1 },
+    steps: [
+      { station: 'cupStack', param: 'cup', quality: 1 },
+      { station: 'grinder', param: 'grind', quality: 0.4 },
+      { station: 'espresso', param: 'pull', quality: 0.3, seconds: 41 },
+      { station: 'steamWand', param: 'steam', quality: 0.3, foam: 'dry', temp: 78 },
+      { station: 'steamWand', param: 'pour', quality: 1 },
+      { station: 'cupStack', param: 'lid', quality: 1 },
+    ],
+  };
+  const result = orders.scoreOrder(order, built);
+  const factCodes = Array.isArray(result.faults) ? result.faults.map(fault => fault.code).sort() : [];
+  const proseCodes = orders.faultsFromNotes(result.notes).map(fault => fault.code).sort();
+  check('fault codes agree: facts=' + JSON.stringify(factCodes) + ' prose=' + JSON.stringify(proseCodes), () => {
+    if (!Array.isArray(result.faults) || result.faults.length === 0) {
+      throw new Error('scoreOrder returned no fault facts');
+    }
+    for (const fault of result.faults) {
+      if (!(fault.code in orders.FAULT_LABELS)) throw new Error('unknown code: ' + JSON.stringify(fault));
+      if (fault.label !== orders.FAULT_LABELS[fault.code]) throw new Error('label mismatch: ' + JSON.stringify(fault));
+    }
+    if (JSON.stringify(factCodes) !== JSON.stringify(proseCodes)) {
+      throw new Error('facts=' + JSON.stringify(factCodes) + ' prose=' + JSON.stringify(proseCodes));
+    }
   });
 }
 
