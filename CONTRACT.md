@@ -407,3 +407,56 @@ Every metal needs a real `metalness` (0.9+) with low `roughness` and an
 `envMapIntensity`; every large flat surface needs roughness variation from a
 procedural map, or it reads as vinyl. Uniform roughness is what makes a scene
 look like programmer art.
+
+## 11. FEEDBACK AND TRAINING MODE (added after user testing)
+Two failures reported by the user, with one root cause: **the simulation knows
+exactly what happened and does not tell the player.**
+
+> "'americano needed work' — but what work?! ... unclear"
+
+`scoreOrder` already returns a prioritised `notes[]` with specific text such as
+"Wrong drink — that is an Americano, the ticket says a Latte". None of it ever
+reaches the screen: the HUD renders `+£3.55 AMERICANO` and discards the rest.
+
+### 11.1 Say what was wrong
+- `scoreOrder` gains `tip_text`: ONE actionable sentence naming the single
+  biggest loss and how to fix it — "You pulled 2 shots; an Americano takes 1"
+  or "Milk hit 78 °C; release the wand between 60 and 68". Never vague, never
+  "needed work", always a number or a named action the player can repeat.
+- `order:served` must carry `{order, score, tip, notes, tip_text, correct}`.
+  Whoever emits it may not drop fields it was given.
+- The HUD renders the top note on the toast, and `tip_text` under it when the
+  drink was not perfect. The end-of-shift card lists the three most common
+  faults of the shift, so a player learns their own pattern.
+
+### 11.2 Training mode
+A mode the player can turn on from the title card and toggle in play, for
+learning the bar. It is not a difficulty setting; it is a coach.
+
+- **Always-on next step.** A persistent panel names the next unsatisfied step
+  of the front ticket in plain language — "GRIND: hold at the grinder until
+  the dose meter is in the green" — with a step counter (3 of 5).
+- **Point at it.** The HUD projects the target station's world anchor
+  (`getStationAnchors()`) to screen space and draws a marker there, with an
+  off-screen edge arrow when it is behind you. This is why it belongs to the
+  HUD and not to a material tint: no module has to touch another's meshes.
+- **Explain the meters while they run.** When a meter is live in training
+  mode, the target zone carries a plain-language label — "release here" —
+  rather than only a coloured band.
+- **No failure while learning.** Patience drains at 40% and walk-outs do not
+  end the shift. Money and tips still accrue, so the loop still teaches value.
+- Training state lives in `ctx.state.training` and persists across shifts in
+  `localStorage`. It is ON by default until the player completes one shift.
+
+### 11.3 Ownership
+| piece | file | owner |
+|---|---|---|
+| `tip_text`, richer notes, fault tally | `src/game/orders.js`, `state.js` | game |
+| next-step computation, `guide:step` event | `src/game/stations.js` | play |
+| panel, marker, meter labels, toggle, end-card faults | `src/ui/hud.js`, `hud.css` | ui |
+
+New bus event: `guide:step` with
+`{station, label, hint, index, total, param}` — emitted by stations.js whenever
+the held cup or the front ticket changes, and `null` when there is nothing to
+do. The HUD renders it only in training mode, but stations.js emits it always,
+so the panel cannot go stale when the mode is switched on mid-drink.
