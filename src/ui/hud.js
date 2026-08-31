@@ -140,12 +140,16 @@ function syncTrainingUI() {
   }
 }
 
-function requestTrainingToggle() {
-  const on = !trainingIsOn();
+function requestTrainingToggle(requestedOn) {
+  const on = typeof requestedOn === 'boolean' ? requestedOn : !trainingIsOn();
   trainingMirror = on;
   syncTrainingUI();
   // training:set is the HUD's request event; the contract only names guide:step.
   emitInput('training:set', { on });
+}
+
+function requestTrainingOff() {
+  if (trainingIsOn()) requestTrainingToggle(false);
 }
 
 function setTouchMode(on) {
@@ -326,11 +330,16 @@ function buildTicketRail() {
   const counter = el('span', 'sb-guide-counter');
   heading.append(label, counter);
   const hint = el('div', 'sb-guide-hint');
-  panel.append(heading, hint);
+  const dismiss = el('button', 'sb-guide-dismiss', '×');
+  dismiss.type = 'button';
+  dismiss.setAttribute('aria-label', 'Turn off coach');
+  dismiss.setAttribute('title', 'Turn off coach');
+  dismiss.addEventListener('click', requestTrainingOff);
+  panel.append(heading, hint, dismiss);
   rail.append(more, panel);
   hudRoot.append(rail);
   Object.assign(nodes, { ticketRail: rail, moreOrders: more, guidePanel: panel,
-    guideLabel: label, guideCounter: counter, guideHint: hint });
+    guideLabel: label, guideCounter: counter, guideHint: hint, guideDismiss: dismiss });
 }
 
 function makeTicket(order, key) {
@@ -1439,6 +1448,18 @@ function buildTouchControls() {
     node.addEventListener('touchstart', preventNativeTouch, { passive: false });
     node.addEventListener('touchmove', preventNativeTouch, { passive: false });
   }
+
+  nodes.guideDismiss?.addEventListener('touchstart', event => {
+    preventNativeTouch(event);
+    requestTrainingOff();
+  }, { passive: false });
+  nodes.guideDismiss?.addEventListener('touchmove', preventNativeTouch, { passive: false });
+
+  nodes.guideDismiss?.addEventListener('pointerdown', event => {
+    if (!touchMode || event?.pointerType === 'mouse') return;
+    event.preventDefault?.();
+    requestTrainingOff();
+  });
 
   const releaseCapture = (node, pointerId) => {
     if (pointerId == null) return;
