@@ -858,9 +858,7 @@ function renderGuideStep(payload) {
   let counter = '';
   if (hasCounter) {
     const total = Math.max(1, Math.floor(step.total));
-    const index = step.index < step.total && step.index + 1 <= step.total
-      ? step.index + 1 : step.index;
-    counter = `${clamp(Math.floor(index), 1, total)} of ${total}`;
+    counter = `${clamp(Math.floor(step.index), 1, total)} of ${total}`;
   }
   writeText(nodes.guideLabel, label);
   writeText(nodes.guideHint, hint);
