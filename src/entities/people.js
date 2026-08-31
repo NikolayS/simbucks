@@ -7,6 +7,16 @@
  * below 11,312 triangles, comfortably under the 30,000-triangle module budget.
  */
 
+/*
+ * Cross-module transform contracts:
+ * - People face +Z with soles at group-local y = 0; toes are at z > 0 and
+ *   backpacks at z < 0. walkTo() uses yaw = Math.atan2(dx, dz), matching
+ *   customers.js when it writes rotation.y directly.
+ * - update(dt) never writes group.position or group.rotation.y unless walkTo()
+ *   or face() was called on that person. Customer root transforms belong to
+ *   customers.js; pose animation stays on children. Measured drift: 0.000000 m/30 s.
+ */
+
 import * as THREE from 'three';
 
 // ---------------------------------------------------------------------------
@@ -35,6 +45,7 @@ let contextRandomFallbackCounter = 0;
 
 function mergeBoxes(parts) {
   const geometries = [];
+  const hasVertexColors = parts.some(part => Number.isFinite(part.color));
   let positionLength = 0;
   let normalLength = 0;
   let uvLength = 0;
@@ -62,6 +73,7 @@ function mergeBoxes(parts) {
   const positions = new Float32Array(positionLength);
   const normals = new Float32Array(normalLength);
   const uvs = new Float32Array(uvLength);
+  const colors = hasVertexColors ? new Float32Array(positionLength) : null;
   let positionOffset = 0;
   let normalOffset = 0;
   let uvOffset = 0;
@@ -70,6 +82,15 @@ function mergeBoxes(parts) {
     positions.set(geometry.attributes.position.array, positionOffset);
     normals.set(geometry.attributes.normal.array, normalOffset);
     uvs.set(geometry.attributes.uv.array, uvOffset);
+    if (colors) {
+      const color = new THREE.Color(Number.isFinite(parts[i].color) ? parts[i].color : 0xFFFFFF);
+      const end = positionOffset + geometry.attributes.position.array.length;
+      for (let offset = positionOffset; offset < end; offset += 3) {
+        colors[offset] = color.r;
+        colors[offset + 1] = color.g;
+        colors[offset + 2] = color.b;
+      }
+    }
     positionOffset += geometry.attributes.position.array.length;
     normalOffset += geometry.attributes.normal.array.length;
     uvOffset += geometry.attributes.uv.array.length;
@@ -78,6 +99,7 @@ function mergeBoxes(parts) {
   merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   merged.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
   merged.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  if (colors) merged.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   merged.computeBoundingSphere();
   return merged;
 }
@@ -162,6 +184,7 @@ for (let i = 0; i < SAFE_FALLBACK_PATH.length; i += 2) {
 // ---------------------------------------------------------------------------
 
 const COLOR_MATERIALS = new Map();
+const LOD_PROXY_MATERIAL = new THREE.MeshLambertMaterial({ vertexColors: true });
 
 // Lambert is deliberately used for varied colours: it is cheap and suits the flat style.
 function colourMaterial(hex) {
@@ -284,6 +307,7 @@ function makeFallbackPerson() {
     walkTo() { moving = false; },
     face() {},
     setPose() { moving = false; },
+    setDetail() {},
     say() {},
     isMoving() { return moving; },
   };
@@ -333,18 +357,34 @@ function createPerson(ctx, options) {
 
   let topColour = TRAVEL_COLOURS[Math.floor(random() * TRAVEL_COLOURS.length)];
   let trouserColour = TRAVEL_COLOURS[Math.floor(random() * TRAVEL_COLOURS.length)];
+  let explicitTop = false;
+  let explicitTrousers = false;
   if (palette && Array.isArray(palette) && palette.length) {
     topColour = palette[Math.floor(random() * palette.length)];
     trouserColour = palette[Math.floor(random() * palette.length)];
   } else if (palette && !Array.isArray(palette)) {
-    if (Number.isFinite(palette.top)) topColour = palette.top;
-    if (Number.isFinite(palette.trousers)) trouserColour = palette.trousers;
+    if (Number.isFinite(palette.cloth)) {
+      topColour = palette.cloth;
+      explicitTop = true;
+    } else if (Number.isFinite(palette.top)) {
+      topColour = palette.top;
+      explicitTop = true;
+    }
+    if (Number.isFinite(palette.accent)) {
+      trouserColour = palette.accent;
+      explicitTrousers = true;
+    } else if (Number.isFinite(palette.trousers)) {
+      trouserColour = palette.trousers;
+      explicitTrousers = true;
+    }
   }
   const highVis = role !== 'barista' && random() < 0.05;
-  if (trouserColour === topColour) {
-    let colourIndex = TRAVEL_COLOURS.indexOf(trouserColour);
+  if (trouserColour === topColour && !(explicitTop && explicitTrousers)) {
+    const colourToChange = explicitTrousers ? topColour : trouserColour;
+    let colourIndex = TRAVEL_COLOURS.indexOf(colourToChange);
     colourIndex = (colourIndex + 1 + Math.floor(random() * (TRAVEL_COLOURS.length - 1))) % TRAVEL_COLOURS.length;
-    trouserColour = TRAVEL_COLOURS[colourIndex];
+    if (explicitTrousers) topColour = TRAVEL_COLOURS[colourIndex];
+    else trouserColour = TRAVEL_COLOURS[colourIndex];
   }
   const topMat = role === 'barista' ? blackMat : colourMaterial(topColour);
   const trouserMat = role === 'barista' ? colourMaterial(0x272B31) : colourMaterial(trouserColour);
@@ -401,16 +441,19 @@ function createPerson(ctx, options) {
     headRadius * 2, headRadius * 2.08, headRadius * 1.9, shadowRig,
   );
 
+  let proxyHairColour = HAIR_COLOURS[0];
   let headwear = palette && !Array.isArray(palette) ? palette.headwear : null;
   if (role === 'barista') {
     if (headwear !== 'headscarf' && headwear !== 'cap') headwear = random() < 0.34 ? 'headscarf' : 'cap';
     if (headwear === 'headscarf') {
-      const scarfMat = colourMaterial(0x23262B);
+      proxyHairColour = 0x23262B;
+      const scarfMat = colourMaterial(proxyHairColour);
       addMesh(
         head, HEADSCARF_GEO, scarfMat, 'headscarfCap', 0, 0, 0,
         headwearScaleX, headwearScaleY, headwearScaleZ, false,
       );
     } else {
+      proxyHairColour = 0x14161A;
       addMesh(
         head, CAP_GEO, blackMat, 'capCrown', 0, 0, 0,
         headwearScaleX, headwearScaleY, headwearScaleZ, false,
@@ -419,13 +462,15 @@ function createPerson(ctx, options) {
   } else {
     const hairRoll = random();
     if (hairRoll >= 0.10 && hairRoll < 0.23) {
-      const beanieMat = colourMaterial(BEANIE_COLOURS[Math.floor(random() * BEANIE_COLOURS.length)]);
+      proxyHairColour = BEANIE_COLOURS[Math.floor(random() * BEANIE_COLOURS.length)];
+      const beanieMat = colourMaterial(proxyHairColour);
       addMesh(
         head, BEANIE_GEO, beanieMat, 'beanie', 0, 0, 0,
         headwearScaleX, headwearScaleY, headwearScaleZ, false,
       );
     } else if (hairRoll >= 0.23) {
-      const hairMat = colourMaterial(HAIR_COLOURS[Math.floor(random() * HAIR_COLOURS.length)]);
+      proxyHairColour = HAIR_COLOURS[Math.floor(random() * HAIR_COLOURS.length)];
+      const hairMat = colourMaterial(proxyHairColour);
       addMesh(
         head, SPHERE_GEO, hairMat, 'hairCap', 0, headRadius * 1.48, -headRadius * 0.08,
         headRadius * 2.04, headRadius * 1.18, headRadius * 2.04, false,
@@ -529,7 +574,11 @@ function createPerson(ctx, options) {
     bagType = bagRoll < 0.42 ? 'none' : bagRoll < 0.68 ? 'backpack' : bagRoll < 0.86 ? 'tote' : 'roller';
   }
   if (role === 'barista') bagType = 'none';
-  const bagMat = colourMaterial(TRAVEL_COLOURS[Math.floor(random() * TRAVEL_COLOURS.length)]);
+  let bagColour = TRAVEL_COLOURS[Math.floor(random() * TRAVEL_COLOURS.length)];
+  if (bagType !== 'none' && palette && !Array.isArray(palette) && Number.isFinite(palette.accent)) {
+    bagColour = palette.accent;
+  }
+  const bagMat = colourMaterial(bagColour);
   const rollerGroupZ = -0.12;
   const rollerWheelCentreY = -0.295;
   const rollerWheelRadius = 0.055 * 0.5;
@@ -577,6 +626,115 @@ function createPerson(ctx, options) {
     addMesh(phoneRoot, PLANE_GEO, PHONE_FACE_MAT, 'phoneFace', 0, 0.015, 0.0065, 0.064, 0.112, 1, false);
     addMesh(phoneRoot, PLANE_GEO, PHONE_HALO_MAT, 'phoneGlow', 0, 0.015, 0.011, 0.092, 0.145, 1, false);
     phoneRoot.visible = false;
+  }
+
+  let proxy = null;
+  let detail = 'full';
+  let proxyBobTime = (hashSeed(seed) / 4294967296) * TAU;
+  if (opts.lodProxy === true) {
+    const proxyParts = [];
+    const proxySeated = Number.isFinite(opts.seatHeight);
+    const proxyHipY = proxySeated ? opts.seatHeight / personScale : hipHeight;
+    const proxyTopColour = role === 'barista' ? 0x14161A : topColour;
+    const proxyTrouserColour = role === 'barista' ? 0x272B31 : trouserColour;
+    const proxyHeadBase = proxyHipY + spineRise + torsoHeight + neckLength;
+    const armLength = upperLength + foreLength;
+
+    proxyParts.push(
+      { w: hipWidth, h: 0.16, d: 0.18, x: 0, y: proxyHipY + 0.035, z: 0, color: proxyTrouserColour },
+      {
+        w: shoulderWidth, h: torsoHeight, d: torsoDepth, x: 0,
+        y: proxyHipY + spineRise + torsoHeight * 0.5, z: 0, color: proxyTopColour,
+      },
+      {
+        w: headRadius * 2, h: headRadius * 2.08, d: headRadius * 1.9, x: 0,
+        y: proxyHeadBase + headRadius, z: 0, color: skinChoice,
+      },
+      {
+        w: headRadius * 2.04, h: headRadius * 1.18, d: headRadius * 2.04, x: 0,
+        y: proxyHeadBase + headRadius * 1.48, z: -headRadius * 0.08, color: proxyHairColour,
+      },
+      {
+        w: limbWidth, h: armLength, d: limbWidth, x: -shoulderWidth * 0.52,
+        y: proxyHipY + spineRise + torsoHeight * 0.82 - armLength * 0.5,
+        z: 0, color: proxyTopColour,
+      },
+      {
+        w: limbWidth, h: armLength, d: limbWidth, x: shoulderWidth * 0.52,
+        y: proxyHipY + spineRise + torsoHeight * 0.82 - armLength * 0.5,
+        z: 0, color: proxyTopColour,
+      },
+    );
+    if (proxySeated) {
+      const shinHeight = legShin + footHeight;
+      proxyParts.push(
+        {
+          w: limbWidth * 1.18, h: legThigh, d: limbWidth * 1.18,
+          x: -hipWidth * 0.27, y: proxyHipY - 0.02, z: legThigh * 0.5,
+          rx: -HALF_PI, color: proxyTrouserColour,
+        },
+        {
+          w: limbWidth * 1.18, h: legThigh, d: limbWidth * 1.18,
+          x: hipWidth * 0.27, y: proxyHipY - 0.02, z: legThigh * 0.5,
+          rx: -HALF_PI, color: proxyTrouserColour,
+        },
+        {
+          w: limbWidth, h: shinHeight, d: limbWidth,
+          x: -hipWidth * 0.27, y: proxyHipY - shinHeight * 0.5, z: legThigh,
+          color: proxyTrouserColour,
+        },
+        {
+          w: limbWidth, h: shinHeight, d: limbWidth,
+          x: hipWidth * 0.27, y: proxyHipY - shinHeight * 0.5, z: legThigh,
+          color: proxyTrouserColour,
+        },
+      );
+    } else {
+      const legHeight = hipHeight - 0.02;
+      proxyParts.push(
+        {
+          w: limbWidth * 1.18, h: legHeight, d: limbWidth * 1.18,
+          x: -hipWidth * 0.27, y: legHeight * 0.5, z: 0, color: proxyTrouserColour,
+        },
+        {
+          w: limbWidth * 1.18, h: legHeight, d: limbWidth * 1.18,
+          x: hipWidth * 0.27, y: legHeight * 0.5, z: 0, color: proxyTrouserColour,
+        },
+      );
+    }
+    if (bagType === 'backpack') {
+      proxyParts.push({
+        w: shoulderWidth * 0.64, h: torsoHeight * 0.55, d: torsoDepth * 0.737,
+        x: 0, y: proxyHipY + spineRise + torsoHeight * 0.47,
+        z: -torsoDepth * 0.66, color: bagColour,
+      });
+    } else if (bagType === 'tote') {
+      proxyParts.push({
+        w: shoulderWidth * 0.741, h: torsoHeight * 0.64, d: torsoDepth * 0.395,
+        x: shoulderWidth * 0.83, y: proxyHipY + spineRise + torsoHeight * 0.06,
+        z: 0, color: bagColour,
+      });
+    } else if (bagType === 'roller') {
+      const rollerHeight = torsoHeight * 1.10;
+      proxyParts.push({
+        w: shoulderWidth * 0.889, h: rollerHeight, d: torsoDepth * 1.158,
+        x: shoulderWidth * 0.52 + 0.24, y: rollerHeight * 0.5,
+        z: rollerGroupZ, color: bagColour,
+      });
+    }
+    if (role === 'barista') {
+      proxyParts.push({
+        w: shoulderWidth * 0.86, h: torsoHeight * 0.82, d: 0.018,
+        x: 0, y: proxyHipY + spineRise + torsoHeight * 0.43,
+        z: torsoDepth * 0.53, color: 0x1E6B4F,
+      });
+    }
+    proxy = new THREE.Mesh(mergeBoxes(proxyParts), LOD_PROXY_MATERIAL);
+    proxy.name = 'personLodProxy';
+    proxy.visible = false;
+    proxy.castShadow = false;
+    proxy.receiveShadow = false;
+    group.add(proxy);
   }
 
   const bubbleAnchor = new THREE.Object3D();
@@ -1064,9 +1222,35 @@ function createPerson(ctx, options) {
     }
   }
 
+  function internalSetDetail(name) {
+    if (name === 'proxy') {
+      if (!proxy) {
+        detail = 'full';
+        root.visible = true;
+        return;
+      }
+      detail = 'proxy';
+      root.visible = false;
+      proxy.visible = true;
+    } else if (name === 'full') {
+      detail = 'full';
+      root.visible = true;
+      if (proxy) proxy.visible = false;
+    }
+  }
+
   function internalUpdate(dt) {
     const delta = Number.isFinite(dt) ? clamp(dt, 0, 0.1) : 0;
     const realSpeed = updateMotion(delta);
+    if (detail === 'proxy' && proxy) {
+      if (targetActive || realSpeed > 0) {
+        proxyBobTime += delta;
+        proxy.position.y = Math.abs(Math.sin(proxyBobTime * 8)) * (0.02 / personScale);
+      } else {
+        proxy.position.y = 0;
+      }
+      return;
+    }
     updatePose(delta, realSpeed);
     updateBubble(delta);
   }
@@ -1083,6 +1267,7 @@ function createPerson(ctx, options) {
     walkTo(point, speed) { internalWalkTo(point, speed); },
     face(point) { internalFace(point); },
     setPose(name) { internalSetPose(name); },
+    setDetail(name) { internalSetDetail(name); },
     say(text) { internalSay(text); },
     isMoving() { return targetActive; },
   };
@@ -1144,12 +1329,18 @@ function segmentCrossesRail(ax, az, bx, bz, rail) {
   const dz = bz - az;
   if (Math.abs(dz) < 0.000001) {
     if (Math.abs(az - rail.z) > 0.000001) return false;
-    return Math.max(Math.min(ax, bx), rail.x0) <= Math.min(Math.max(ax, bx), rail.x1);
+    const overlapX0 = Math.max(Math.min(ax, bx), rail.x0);
+    const overlapX1 = Math.min(Math.max(ax, bx), rail.x1);
+    if (overlapX0 > overlapX1) return false;
+    const gap = rail.gap;
+    return !(gap && overlapX0 >= gap.x0 && overlapX1 <= gap.x1);
   }
   const along = (rail.z - az) / dz;
   if (along < 0 || along > 1) return false;
   const x = ax + (bx - ax) * along;
-  return x >= rail.x0 && x <= rail.x1;
+  if (x < rail.x0 || x > rail.x1) return false;
+  const gap = rail.gap;
+  return !(gap && x >= gap.x0 && x <= gap.x1);
 }
 
 function crowdKeepouts(layout) {
@@ -1166,7 +1357,7 @@ function crowdKeepouts(layout) {
   const floor = layout.terminal.floor;
   const orderEnd = order.x + order.dx * (order.n - 1);
   const pickupEnd = pickup.x + pickup.dx * (pickup.n - 1);
-  return [
+  const keepouts = [
     { x0: aisleOuter.x0 - 1, x1: aisleOuter.x1 + 1, z0: aisleOuter.z0 - 1, z1: aisleOuter.z1 + 1 },
     { x0: Math.min(order.x, orderEnd) - 0.65, x1: Math.max(order.x, orderEnd) + 0.9, z0: order.z - 0.55, z1: order.z + 0.65 },
     { x0: Math.min(pickup.x, pickupEnd) - 0.7, x1: Math.max(pickup.x, pickupEnd) + 0.5, z0: pickup.z - 0.5, z1: pickup.z + 0.6 },
@@ -1175,13 +1366,22 @@ function crowdKeepouts(layout) {
     { x0: aelia.x0 - 0.6, x1: aelia.x1 + 0.6, z0: aelia.z0 - 0.6, z1: aelia.z1 + 0.6 },
     { x0: inMotion.x0 - 0.6, x1: inMotion.x1 + 0.6, z0: rearWall, z1: rearWall + 3.0 },
     { x0: floor.x0, x1: floor.x1, z0: floor.z0, z1: rearWall + 2.0 },
-    {
-      x0: tables[0].x - tableSize.w * 0.5 - 0.3,
-      x1: tables[0].x + tableSize.w * 0.5 + 0.3,
-      z0: Math.min(tables[0].z, tables[1].z) - tableSize.d * 0.5 - 0.3,
-      z1: Math.max(tables[0].z, tables[1].z) + tableSize.d * 0.5 + 0.3,
-    },
   ];
+  for (let i = 0; i < tables.length; i += 1) {
+    const table = tables[i];
+    const rotY = Number.isFinite(table.rotY) ? table.rotY : 0;
+    const cos = Math.cos(rotY);
+    const sin = Math.sin(rotY);
+    const halfX = Math.abs(tableSize.w * 0.5 * cos) + Math.abs(tableSize.d * 0.5 * sin);
+    const halfZ = Math.abs(tableSize.w * 0.5 * sin) + Math.abs(tableSize.d * 0.5 * cos);
+    keepouts.push({
+      x0: table.x - halfX - 0.3,
+      x1: table.x + halfX + 0.3,
+      z0: table.z - halfZ - 0.3,
+      z1: table.z + halfZ + 0.3,
+    });
+  }
+  return keepouts;
 }
 
 function pathIsSafe(points, boxes, rail) {
@@ -1284,24 +1484,46 @@ function createCrowd(ctx) {
   }
 
   function trackPerson(person) {
-    const lod = { person, level: 0, accumulatedDt: 0, skippedFrames: 0 };
+    const lod = { person, level: 0, distanceSq: 0, accumulatedDt: 0, skippedFrames: 0 };
     group.add(person.group);
     people.push(person);
     crowdLod.push(lod);
     return lod;
   }
 
-  // layout.js exposes only the seating bounds, so this deterministic chair grid fills that known gap.
   const seating = layout.terminal.seating;
+  const seatGrid = layout.terminal.seatGrid;
+  const hasSeatGrid = Number.isFinite(seatGrid?.x0)
+    && Number.isFinite(seatGrid?.pitch)
+    && Number.isFinite(seatGrid?.perBank)
+    && seatGrid.perBank >= 1
+    && Number.isFinite(seatGrid?.seatTop)
+    && Array.isArray(seatGrid?.rows)
+    && seatGrid.rows.length > 0
+    && seatGrid.rows.every(z => Number.isFinite(z));
+  const seatsPerBank = hasSeatGrid ? Math.floor(seatGrid.perBank) : 6;
+  const seatTop = hasSeatGrid ? seatGrid.seatTop : 0.45;
   const seatCandidates = [];
-  for (let row = 0; row < 5; row += 1) {
-    for (let bank = 0; bank < 2; bank += 1) {
-      for (let chair = 0; chair < 6; chair += 1) {
+  if (hasSeatGrid) {
+    for (let row = 0; row < seatGrid.rows.length; row += 1) {
+      for (let chair = 0; chair < seatsPerBank; chair += 1) {
         seatCandidates.push({
-          x: seating.x0 + 0.6 + bank * 4.0 + chair * 0.62,
-          z: seating.z0 + 0.8 + row * 2.8,
-          code: row * 12 + bank * 6 + chair,
+          x: seatGrid.x0 + chair * seatGrid.pitch,
+          z: seatGrid.rows[row],
+          code: row * seatsPerBank + chair,
         });
+      }
+    }
+  } else {
+    for (let row = 0; row < 5; row += 1) {
+      for (let bank = 0; bank < 2; bank += 1) {
+        for (let chair = 0; chair < 6; chair += 1) {
+          seatCandidates.push({
+            x: seating.x0 + 0.6 + bank * 4.0 + chair * 0.62,
+            z: seating.z0 + 0.8 + row * 2.8,
+            code: row * 12 + bank * 6 + chair,
+          });
+        }
       }
     }
   }
@@ -1320,31 +1542,33 @@ function createCrowd(ctx) {
     candidateIndex += 1;
     let adjacent = false;
     for (let i = 0; i < chosenCodes.length; i += 1) {
-      if (Math.abs(chosenCodes[i] - candidate.code) === 1 && Math.floor(chosenCodes[i] / 6) === Math.floor(candidate.code / 6)) {
+      if (Math.abs(chosenCodes[i] - candidate.code) === 1
+        && Math.floor(chosenCodes[i] / seatsPerBank) === Math.floor(candidate.code / seatsPerBank)) {
         adjacent = true;
         break;
       }
     }
-    if (adjacent) continue;
+    const remainingNeeded = seatedCount - chosenCodes.length;
+    const remainingCandidates = seatCandidates.length - candidateIndex;
+    if (adjacent && remainingCandidates >= remainingNeeded) continue;
     chosenCodes.push(candidate.code);
-    const seatedOrdinal = chosenCodes.length - 1;
     const seatedStyle = makeRng((seed + serial * 7919) ^ 0x51A7);
     const yawJitter = (seatedStyle() * 2 - 1) * 0.14;
-    const seatedYaw = seatedOrdinal < 3 ? (seatedOrdinal === 1 ? -0.5 : 0.5) : yawJitter;
     const seated = makePerson(ctx, {
       role: 'passenger',
       bag: chosenCodes.length <= 2 ? 'roller' : random() < 0.18 ? 'backpack' : 'none',
       seed: seed + serial * 7919,
-      seatHeight: 0.45,
+      seatHeight: seatTop,
       palette: { phone: chosenCodes.length <= phoneCount },
       scale: 0.94 + random() * 0.12,
       sitSlouch: 0.04 + seatedStyle() * 0.12,
       sitArm: seatedStyle() < 0.5 ? 'left' : 'right',
       castShadow: castsShadowAt(candidate.x, candidate.z),
+      lodProxy: true,
     });
     serial += 1;
     seated.group.position.set(candidate.x, 0, candidate.z);
-    seated.group.rotation.y = seatedYaw;
+    seated.group.rotation.y = yawJitter;
     seated.setPose('sit');
     trackPerson(seated);
   }
@@ -1388,6 +1612,7 @@ function createCrowd(ctx) {
       palette: child ? { child: true, phone: false } : { phone: false },
       scale: child ? 0.96 + random() * 0.08 : 0.94 + random() * 0.12,
       castShadow: castsShadowAt(path[waypointIndex].x, path[waypointIndex].z),
+      lodProxy: true,
     });
     serial += 1;
     walker.group.position.copy(path[waypointIndex]);
@@ -1402,8 +1627,13 @@ function createCrowd(ctx) {
   for (let stool = 0; stool < 3; stool += 1) {
     const table = tables[stool === 2 ? 1 : 0];
     const side = stool === 1 ? -1 : 1;
-    const x = table.x - tableWidth * 0.5 + 0.6 + (stool === 2 ? 1.6 : stool * 0.8);
-    const z = table.z + side * 0.72;
+    const localX = -tableWidth * 0.5 + 0.6 + (stool === 2 ? 1.6 : stool * 0.8);
+    const localZ = side * 0.72;
+    const rotY = Number.isFinite(table.rotY) ? table.rotY : 0;
+    const cos = Math.cos(rotY);
+    const sin = Math.sin(rotY);
+    const x = table.x + localX * cos + localZ * sin;
+    const z = table.z - localX * sin + localZ * cos;
     const sitterStyle = makeRng((seed + serial * 7919) ^ 0x57A1);
     const sitter = makePerson(ctx, {
       role: 'passenger',
@@ -1415,10 +1645,11 @@ function createCrowd(ctx) {
       sitSlouch: 0.04 + sitterStyle() * 0.12,
       sitArm: sitterStyle() < 0.5 ? 'left' : 'right',
       castShadow: castsShadowAt(x, z),
+      lodProxy: true,
     });
     serial += 1;
     sitter.group.position.set(x, 0, z);
-    sitter.group.rotation.y = (side > 0 ? Math.PI : 0) + (sitterStyle() * 2 - 1) * 0.14;
+    sitter.group.rotation.y = rotY + (localZ > 0 ? Math.PI : 0);
     sitter.setPose('sit');
     trackPerson(sitter);
   }
@@ -1436,6 +1667,39 @@ function createCrowd(ctx) {
       return Number.isFinite(cameraScratch.x) && Number.isFinite(cameraScratch.z);
     } catch (_) {
       return false;
+    }
+  }
+
+  function evaluateLod(lod, hasCamera) {
+    let level = lod.level;
+    if (!hasCamera) {
+      lod.distanceSq = 0;
+      level = 0;
+    } else {
+      const dx = lod.person.group.position.x - cameraScratch.x;
+      const dz = lod.person.group.position.z - cameraScratch.z;
+      const distanceSq = dx * dx + dz * dz;
+      lod.distanceSq = distanceSq;
+      if (level === 0) {
+        if (distanceSq > 576) level = 2;
+        else if (distanceSq > 121) level = 1;
+      } else if (level === 1) {
+        if (distanceSq > 576) level = 2;
+        else if (distanceSq < 81) level = 0;
+      } else if (distanceSq < 81) {
+        level = 0;
+      } else if (distanceSq < 484) {
+        level = 1;
+      }
+    }
+    if (level === lod.level) return;
+    lod.level = level;
+    lod.person.group.visible = level !== 2;
+    if (level === 0) lod.person.setDetail('full');
+    else if (level === 1) lod.person.setDetail('proxy');
+    if (level === 2) {
+      lod.accumulatedDt = 0;
+      lod.skippedFrames = 0;
     }
   }
 
@@ -1467,6 +1731,11 @@ function createCrowd(ctx) {
     if (distance - STOP_DISTANCE <= travel + 0.00001) startNextWaypoint(walker);
   }
 
+  const initialHasCamera = readCameraPosition();
+  if (initialHasCamera) {
+    for (let i = 0; i < crowdLod.length; i += 1) evaluateLod(crowdLod[i], true);
+  }
+
   return {
     group,
     update(dt, t) {
@@ -1476,19 +1745,7 @@ function createCrowd(ctx) {
       for (let checked = 0; checked < checks; checked += 1) {
         const lod = crowdLod[lodCursor];
         lodCursor = (lodCursor + 1) % crowdLod.length;
-        let level = 0;
-        if (hasCamera) {
-          const dx = lod.person.group.position.x - cameraScratch.x;
-          const dz = lod.person.group.position.z - cameraScratch.z;
-          const distanceSq = dx * dx + dz * dz;
-          level = distanceSq > 1156 ? 2 : distanceSq > 256 ? 1 : 0;
-        }
-        lod.level = level;
-        lod.person.group.visible = level !== 2;
-        if (level === 2) {
-          lod.accumulatedDt = 0;
-          lod.skippedFrames = 0;
-        }
+        evaluateLod(lod, hasCamera);
       }
       for (let i = 0; i < walkers.length; i += 1) {
         const walker = walkers[i];
@@ -1503,7 +1760,7 @@ function createCrowd(ctx) {
       for (let i = 0; i < people.length; i += 1) {
         const lod = crowdLod[i];
         if (lod.level === 2) continue;
-        if (lod.level === 1) {
+        if (lod.level === 1 && lod.distanceSq > 169) {
           lod.accumulatedDt += delta;
           lod.skippedFrames += 1;
           if (lod.skippedFrames < 3) continue;
