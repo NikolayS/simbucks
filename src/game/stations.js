@@ -180,6 +180,7 @@ export function createStations(context) {
 
   let shotReady = false;
   let shotQuality = 0;
+  let shotSeconds = 0;
   let liveMeter = null;
   let liveElapsed = 0;
   let liveValue = 0;
@@ -200,6 +201,7 @@ export function createStations(context) {
   let hintTime = 0;
 
   const pending = [];
+  let lastGuide;
 
   // High-frequency event objects are shared because the event bus delivers synchronously.
   const feedbackPayload = { id: null, ok: false, text: '' };
@@ -424,6 +426,7 @@ export function createStations(context) {
     hand = null;
     shotReady = false;
     shotQuality = 0;
+    shotSeconds = 0;
     superautoTime = 0;
     superautoCup = null;
     resetPortafilter();
@@ -578,11 +581,13 @@ export function createStations(context) {
       }
       if (hand === 'pitcher') resetPitcher();
       addStep('grinder', 'grind', portafilter.quality);
-      addStep('espresso', 'pull', shotQuality);
+      const pullStep = addStep('espresso', 'pull', shotQuality);
+      if (pullStep && shotSeconds > 0) pullStep.seconds = shotSeconds;
       cup.contents.espresso += CONFIG.shot.shots;
       recomputeCup();
       shotReady = false;
       shotQuality = 0;
+      shotSeconds = 0;
       resetPortafilter();
       hand = 'cup';
       emitCupChanged();
@@ -644,6 +649,7 @@ export function createStations(context) {
 
   function finishShot() {
     const seconds = liveValue;
+    shotSeconds = Number.isFinite(seconds) ? seconds : 0;
     const timeQuality = zoneQuality(
       seconds,
       CONFIG.shot.zoneSeconds,
@@ -681,7 +687,10 @@ export function createStations(context) {
       }
       const foamTarget = FOAM_TARGETS[selectedFoamIndex];
       const steamStep = addStep('steamWand', 'steam', pitcher.quality);
-      steamStep.foam = foamTarget;
+      if (steamStep) {
+        steamStep.foam = foamTarget;
+        if (Number.isFinite(pitcher.temp)) steamStep.temp = pitcher.temp;
+      }
       addStep('steamWand', 'pour', 1);
       cup.contents.milk += CONFIG.steam.milkUnits;
       cup.contents.foam += pitcher.scorched
@@ -914,6 +923,224 @@ export function createStations(context) {
     return null;
   }
 
+  function guideStepPayload(step, order, index, total, pumps) {
+    const param = step?.param;
+    const kind = String(step?.station ?? '') + ':' + String(param ?? '');
+    const sizeWord = order?.size ? String(order.size).toUpperCase() : '';
+    let station = step?.station;
+    let label;
+    let hint;
+
+    switch (kind) {
+      case 'cupStack:cup': {
+        station = 'cupStack';
+        label = sizeWord ? 'TAKE A ' + sizeWord + ' CUP' : 'TAKE A CUP';
+        const targetIndex = SIZES.indexOf(order?.size);
+        hint = order?.size && SIZES[selectedSizeIndex] !== order.size
+          ? 'tap at the cup stack until it says ' + SIZE_LABELS[targetIndex]
+            + ', then hold to take it'
+          : 'hold at the cup stack to take a cup';
+        break;
+      }
+      case 'cupStack:lid':
+        station = 'cupStack';
+        label = 'LID IT';
+        hint = 'tap at the cup stack to snap a lid on';
+        break;
+      case 'grinder:grind':
+        label = 'GRIND';
+        if (hand !== 'portafilter') {
+          station = 'espresso';
+          hint = 'tap at the espresso machine to take the portafilter';
+        } else {
+          station = 'grinder';
+          hint = 'hold at the grinder until the dose meter is in the green';
+        }
+        break;
+      case 'espresso:pull':
+        station = 'espresso';
+        if (shotReady) {
+          label = 'POUR THE SHOT';
+          hint = cup
+            ? 'tap at the espresso machine to pour it into the cup'
+            : 'take a cup first, then tap here to pour';
+        } else if (hand === 'portafilter' && portafilter.dosed) {
+          label = 'LOCK IT IN';
+          hint = 'tap at the group head to lock the portafilter in';
+        } else if (portafilter.locked) {
+          label = 'PULL SHOT';
+          hint = 'hold at the espresso machine and release at '
+            + CONFIG.shot.zoneSeconds[0] + '-' + CONFIG.shot.zoneSeconds[1] + ' seconds';
+        } else {
+          label = 'PULL SHOT';
+          hint = 'dose the portafilter at the grinder first';
+        }
+        break;
+      case 'steamWand:steam': {
+        station = 'steamWand';
+        label = 'STEAM MILK';
+        const want = typeof step?.foam === 'string' ? step.foam : null;
+        const wantIndex = FOAM_TARGETS.indexOf(want);
+        if (hand !== 'pitcher') {
+          hint = 'tap at the steam wand to pick up the milk pitcher';
+        } else if (wantIndex >= 0 && selectedFoamIndex !== wantIndex) {
+          hint = 'tap the wand until it reads ' + want.toUpperCase() + ', then hold to steam';
+        } else {
+          hint = 'hold at the wand and release between ' + CONFIG.steam.zoneTemp[0]
+            + ' and ' + CONFIG.steam.zoneTemp[1] + ' °C';
+        }
+        break;
+      }
+      case 'steamWand:pour':
+        station = 'steamWand';
+        label = 'POUR THE MILK';
+        if (hand !== 'pitcher') {
+          hint = 'tap at the steam wand to pick up the milk pitcher';
+        } else if (cup && cup.contents.ice > 0 && !pitcher.steamed) {
+          hint = 'tap at the steam wand to pour cold milk over the ice';
+        } else {
+          hint = 'tap at the steam wand to pour the milk into the cup';
+        }
+        break;
+      case 'blender:blend':
+        station = 'blender';
+        label = 'BLEND IT';
+        hint = 'hold at the blender until the bar fills';
+        break;
+      case 'iceWell:ice':
+        station = 'iceWell';
+        label = 'SCOOP ICE';
+        hint = 'tap at the ice well to scoop ice in';
+        break;
+      case 'sink:water':
+        station = 'sink';
+        label = 'HOT WATER';
+        hint = 'tap at the sink to add hot water';
+        break;
+      case 'sink:whisk':
+        station = 'sink';
+        label = 'WHISK IT';
+        hint = 'hold at the sink to whisk it smooth';
+        break;
+      case 'superauto:shot':
+        station = 'superauto';
+        label = typeof step?.note === 'string' && step.note.toLowerCase().includes('decaf')
+          ? 'ONE-TOUCH DECAF SHOT' : 'ONE-TOUCH SHOT';
+        hint = 'tap the super-auto and wait for it to grind and pour';
+        break;
+      case 'superauto:chai':
+        station = 'superauto';
+        label = 'CHAI CONCENTRATE';
+        hint = 'hold at the super-auto to pour the chai';
+        break;
+      case 'coldBrewTap:tap':
+        station = 'coldBrewTap';
+        label = 'POUR COLD BREW';
+        hint = 'hold at the tap and release before it overflows';
+        break;
+      default: {
+        if (step?.station === 'syrupRack' && Number.isFinite(param)) {
+          station = 'syrupRack';
+          const note = typeof step.note === 'string' ? step.note.trim() : '';
+          const flavour = note ? note.split(/\s+/)[0].toUpperCase() : '';
+          label = String(param) + ' ' + (param === 1 ? 'PUMP' : 'PUMPS')
+            + ' OF ' + (flavour || 'SYRUP');
+          const done = Math.max(0, pumps);
+          const left = param - done;
+          hint = done === 0
+            ? 'tap at the syrup rack ' + param + ' ' + (param === 1 ? 'time' : 'times')
+            : 'tap at the syrup rack ' + left + ' more '
+              + (left === 1 ? 'time' : 'times') + ' — ' + done + ' of ' + param + ' in';
+          break;
+        }
+        const known = station === 'cupStack' || station === 'grinder'
+          || station === 'espresso' || station === 'steamWand' || station === 'superauto'
+          || station === 'syrupRack' || station === 'blender' || station === 'iceWell'
+          || station === 'sink' || station === 'coldBrewTap' || station === 'handoff';
+        station = known ? station : 'handoff';
+        label = String(param || station).toUpperCase();
+        hint = 'use the ' + station;
+        break;
+      }
+    }
+
+    return Object.freeze({ station, label, hint, index, total, param });
+  }
+
+  function computeGuide() {
+    const order = orderSource()[0];
+    const steps = recipeForOrder(order);
+    if (!Array.isArray(steps) || steps.length === 0) return null;
+
+    const pool = new Map();
+    const loggedSteps = Array.isArray(cup?.steps) ? cup.steps : [];
+    for (let i = 0; i < loggedSteps.length; i += 1) {
+      const logged = loggedSteps[i];
+      if (!logged || logged.station === 'syrupRack') continue;
+      const key = String(logged.station ?? '') + ':' + String(logged.param ?? '');
+      pool.set(key, (pool.get(key) ?? 0) + 1);
+    }
+
+    let pumps = cup
+      ? clamp(Math.round(cup.contents?.syrup), 0, 8)
+      : 0;
+    if (portafilter.dosed) {
+      pool.set('grinder:grind', (pool.get('grinder:grind') ?? 0) + 1);
+    }
+    if (pitcher.steamed) {
+      pool.set('steamWand:steam', (pool.get('steamWand:steam') ?? 0) + 1);
+    }
+    if (superautoTime > 0 && superautoCup === cup) {
+      pool.set('superauto:shot', (pool.get('superauto:shot') ?? 0) + 1);
+    }
+
+    const total = steps.length + 1;
+    for (let i = 0; i < steps.length; i += 1) {
+      const step = steps[i];
+      if (step?.station === 'syrupRack' && Number.isFinite(step.param)) {
+        if (pumps >= step.param) {
+          pumps -= step.param;
+          continue;
+        }
+        return guideStepPayload(step, order, i + 1, total, pumps);
+      }
+      const key = String(step?.station ?? '') + ':' + String(step?.param ?? '');
+      const available = pool.get(key) ?? 0;
+      if (available > 0) {
+        pool.set(key, available - 1);
+        continue;
+      }
+      return guideStepPayload(step, order, i + 1, total, pumps);
+    }
+
+    return Object.freeze({
+      station: 'handoff',
+      label: 'SERVE IT',
+      hint: 'take it to the handoff counter and tap to hand it over',
+      index: total,
+      total,
+      param: 'serve',
+    });
+  }
+
+  function sameGuide(a, b) {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    return a.station === b.station && a.label === b.label && a.hint === b.hint
+      && a.index === b.index && a.total === b.total && a.param === b.param;
+  }
+
+  function syncGuide() {
+    try {
+      const next = computeGuide();
+      if (sameGuide(lastGuide, next)) return;
+      emit('guide:step', next);
+      lastGuide = next;
+    } catch (_error) {
+      // Guidance is optional and must never interrupt station controls.
+    }
+  }
+
   function syrupTarget() {
     const orders = orderSource();
     if (!orders.length) return -1;
@@ -952,8 +1179,13 @@ export function createStations(context) {
         break;
       }
     }
-    if (syrupStep) syrupStep.param = pumps;
-    else addStep('syrupRack', pumps, 1);
+    if (syrupStep) {
+      syrupStep.param = pumps;
+      syrupStep.pumps = pumps;
+    } else {
+      const newSyrupStep = addStep('syrupRack', pumps, 1);
+      if (newSyrupStep) newSyrupStep.pumps = pumps;
+    }
     recomputeCup();
     emitCupChanged();
     sound('beep', CONFIG.volume.click);
@@ -1248,6 +1480,7 @@ export function createStations(context) {
     const tip = Number.isFinite(result?.tip) ? result.tip : 0;
     const correct = Boolean(result?.correct);
     const notes = Array.isArray(result?.notes) ? result.notes.slice() : [];
+    const tipText = typeof result?.tip_text === 'string' ? result.tip_text : '';
     const name = drinkName(chosen);
 
     const stepCount = Array.isArray(cup.steps) ? cup.steps.length : 0;
@@ -1283,7 +1516,7 @@ export function createStations(context) {
       steps,
       contents,
     };
-    const served = { order: chosen, score, tip, notes, built };
+    const served = { order: chosen, score, tip, notes, tip_text: tipText, correct, built };
 
     removePending(chosen);
     emit('order:served', served);
@@ -1291,7 +1524,9 @@ export function createStations(context) {
     sound('coin');
     sound(correct ? 'ding' : 'thunk');
     toast(name + ' · £' + tip.toFixed(2) + ' tip', correct);
-    feedback('handoff', correct, correct ? name + ' served' : name + ' needed work');
+    feedback('handoff', correct, correct
+      ? name + ' served'
+      : (notes[0] || name + ' needed work'));
     gesture('place');
     resetAll();
   }
@@ -1302,6 +1537,7 @@ export function createStations(context) {
       resetPortafilter();
       shotReady = false;
       shotQuality = 0;
+      shotSeconds = 0;
       hand = cup ? 'cup' : null;
       emitHandItem();
       feedback('drop', true, 'Portafilter back');
@@ -1412,20 +1648,33 @@ export function createStations(context) {
       else reject(id, 'Look at a station and try again');
     } catch (_error) {
       reject(payload?.id ?? null, 'Try that again');
+    } finally {
+      syncGuide();
     }
   }
 
   function onOrderNew(payload) {
     const order = payload?.order;
-    if (!order) return;
-    for (let i = 0; i < pending.length; i += 1) {
-      if (sameOrder(pending[i], order)) return;
+    if (order) {
+      let exists = false;
+      for (let i = 0; i < pending.length; i += 1) {
+        if (sameOrder(pending[i], order)) {
+          exists = true;
+          break;
+        }
+      }
+      if (!exists) pending.push(order);
     }
-    pending.push(order);
+    syncGuide();
   }
 
   function onOrderLost(payload) {
     if (payload?.order) removePending(payload.order);
+    syncGuide();
+  }
+
+  function onOrderServed() {
+    syncGuide();
   }
 
   function subscribe(name, listener) {
@@ -1439,6 +1688,7 @@ export function createStations(context) {
   subscribe('interact', onInteract);
   subscribe('order:new', onOrderNew);
   subscribe('order:lost', onOrderLost);
+  subscribe('order:served', onOrderServed);
 
   function rebuildInteractables(list) {
     registeredList = Array.isArray(list) ? list : null;
@@ -1600,12 +1850,14 @@ export function createStations(context) {
     if (hintTime <= 0) {
       hintTime = CONFIG.hintInterval;
       refreshHints();
+      syncGuide();
     }
   }
 
   function register(interactables) {
     rebuildInteractables(interactables);
     refreshHints();
+    syncGuide();
     hintTime = CONFIG.hintInterval;
   }
 
