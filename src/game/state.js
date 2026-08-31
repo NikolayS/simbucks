@@ -73,6 +73,7 @@ export const FLIGHTS = Object.freeze([
 ].map(Object.freeze));
 
 const wiredContexts = new WeakSet();
+const attachedStateContexts = new WeakSet();
 
 function emit(ctx, name, payload) {
   try {
@@ -89,6 +90,28 @@ export function setTraining(ctx, on) {
   state.training = training;
   writeStoredValue('simbucks.training', training ? '1' : '0');
   emit(ctx, 'training:changed', { training });
+}
+
+// Main or the HUD host calls this at startup so title-card toggles are captured.
+export function attachState(ctx) {
+  if (!ctx || typeof ctx !== 'object' || attachedStateContexts.has(ctx)
+      || typeof ctx?.bus?.on !== 'function') return;
+  attachedStateContexts.add(ctx);
+
+  try {
+    ctx.bus.on('training:set', payload => {
+      try {
+        const on = payload && typeof payload === 'object'
+          ? (Object.prototype.hasOwnProperty.call(payload, 'on') ? payload.on : payload.training)
+          : payload;
+        setTraining(ctx, on);
+      } catch (_) {
+        // Ignore malformed training messages.
+      }
+    });
+  } catch (_) {
+    // A partial bus must not prevent state from attaching.
+  }
 }
 
 export function isTraining(state) {
@@ -223,21 +246,6 @@ function wireBus(ctx) {
   } catch (_) {
     // A partial bus must not prevent the shift from starting.
   }
-
-  try {
-    ctx.bus.on('training:set', payload => {
-      try {
-        const on = payload && typeof payload === 'object'
-          ? (Object.prototype.hasOwnProperty.call(payload, 'on') ? payload.on : payload.training)
-          : payload;
-        setTraining(ctx, on);
-      } catch (_) {
-        // Ignore malformed training messages.
-      }
-    });
-  } catch (_) {
-    // A partial bus must not prevent the shift from starting.
-  }
 }
 
 export function startShift(ctx) {
@@ -249,6 +257,7 @@ export function startShift(ctx) {
   });
   // Re-resolve here so training toggles made mid-session carry into the next shift.
   state.training = resolvedTraining();
+  attachState(ctx);
   wireBus(ctx);
   emit(ctx, 'shift:start', { shiftLength: state.shiftLength });
 }

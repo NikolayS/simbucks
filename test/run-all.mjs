@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const HARNESSES = ['run.mjs', 'menu.mjs', 'syrup.mjs', 'foam.mjs', 'play2-touch.mjs', 'play2-region.mjs', 'play2-feedback.mjs', 'play3-guide.mjs', 'play3-aim.mjs'];
+const HARNESSES = ['run.mjs', 'menu.mjs', 'syrup.mjs', 'foam.mjs', 'play2-touch.mjs', 'play2-region.mjs', 'play2-feedback.mjs', 'play3-guide.mjs', 'play3-aim.mjs', 'balance.mjs'];
 const loaderPath = fileURLToPath(new URL('./loader.mjs', import.meta.url));
 const results = [];
 

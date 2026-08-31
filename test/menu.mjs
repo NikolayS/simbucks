@@ -542,6 +542,94 @@ coverageCheck(eastOfPickupFrames === 0,
 coverageCheck(peakPickupWaiting > pickupCount,
   `training pile-up exceeds the ${pickupCount} pickup slots (peak ${peakPickupWaiting})`);
 
+console.log('\npre-shift training persistence coverage:');
+const trainingStorageValues = new Map();
+const trainingStorage = {
+  getItem(key) {
+    const storageKey = String(key);
+    return trainingStorageValues.has(storageKey) ? trainingStorageValues.get(storageKey) : null;
+  },
+  setItem(key, value) {
+    trainingStorageValues.set(String(key), String(value));
+  },
+  removeItem(key) {
+    trainingStorageValues.delete(String(key));
+  },
+};
+let previousLocalStorage;
+let hadOwnLocalStorage = false;
+let previousLocalStorageCaptured = false;
+let trainingStorageInstalled = false;
+try {
+  hadOwnLocalStorage = Object.prototype.hasOwnProperty.call(globalThis, 'localStorage');
+  previousLocalStorage = globalThis.localStorage;
+  previousLocalStorageCaptured = true;
+  globalThis.localStorage = trainingStorage;
+  trainingStorageInstalled = globalThis.localStorage === trainingStorage;
+} catch (_) {
+  trainingStorageInstalled = false;
+}
+
+try {
+  if (!trainingStorageInstalled) {
+    console.log('skip pre-shift training persistence coverage (localStorage could not be installed)');
+  } else {
+    const preShiftBus = createBus();
+    const preShiftCtx = { bus: preShiftBus, state: state.createState() };
+    const preShiftTrainingEvents = [];
+    preShiftBus.on('training:changed', payload => preShiftTrainingEvents.push(payload));
+    state.attachState(preShiftCtx);
+
+    preShiftBus.emit('training:set', false);
+    coverageCheck(preShiftCtx.state.training === false,
+      'training:set false updates training before a shift');
+    coverageCheck(trainingStorage.getItem('simbucks.training') === '0',
+      'training:set false persists 0 before a shift');
+    coverageCheck(sameValue(preShiftTrainingEvents.at(-1), { training: false }),
+      'training:set false emits training:changed before a shift');
+
+    preShiftBus.emit('training:set', true);
+    coverageCheck(preShiftCtx.state.training === true,
+      'training:set true updates training before a shift');
+    coverageCheck(trainingStorage.getItem('simbucks.training') === '1',
+      'training:set true persists 1 before a shift');
+    coverageCheck(sameValue(preShiftTrainingEvents.at(-1), { training: true }),
+      'training:set true emits training:changed before a shift');
+
+    preShiftBus.emit('training:set', { on: false });
+    coverageCheck(preShiftCtx.state.training === false
+      && trainingStorage.getItem('simbucks.training') === '0'
+      && sameValue(preShiftTrainingEvents.at(-1), { training: false }),
+    'training:set {on:false} works before a shift');
+
+    preShiftBus.emit('training:set', true);
+    preShiftBus.emit('training:set', { training: false });
+    coverageCheck(preShiftCtx.state.training === false
+      && trainingStorage.getItem('simbucks.training') === '0'
+      && sameValue(preShiftTrainingEvents.at(-1), { training: false }),
+    'training:set {training:false} works before a shift');
+
+    state.setTraining(preShiftCtx, true);
+    coverageCheck(preShiftCtx.state.training === true
+      && trainingStorage.getItem('simbucks.training') === '1',
+    'setTraining persists before a shift');
+
+    trainingStorage.setItem('simbucks.training', '0');
+    state.startShift(preShiftCtx);
+    coverageCheck(preShiftCtx.state.training === false,
+      'the next shift restores the stored training choice');
+  }
+} finally {
+  if (previousLocalStorageCaptured) {
+    try {
+      globalThis.localStorage = previousLocalStorage;
+      if (!hadOwnLocalStorage && previousLocalStorage === undefined) delete globalThis.localStorage;
+    } catch (_) {
+      // The test runtime may expose a non-configurable localStorage property.
+    }
+  }
+}
+
 if (coverageFailures.length) process.exitCode = 1;
 
 process.exit((fail || process.exitCode) ? 1 : 0);

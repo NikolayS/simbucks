@@ -73,6 +73,10 @@ const ctx = {
 };
 window.SIMBUCKS = ctx;
 
+// Attach state before anything can emit at it: the title card's training
+// toggle fires before any shift exists, and its listener used to be
+// registered inside startShift, so a pre-shift choice reached nobody.
+guard('state.attach', () => gstate.attachState?.(ctx));
 guard('materials.init', () => materials.initMaterials?.(ctx));
 guard('audio.init', () => audio.initAudio?.(ctx));
 guard('hud.init', () => hud.initHUD?.(ctx));
