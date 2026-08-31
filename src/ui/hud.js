@@ -5,6 +5,7 @@ const PATIENCE_GREEN = '#3FA46A';
 const AMBER = '#E0A526';
 const BAD = '#C0392B';
 const TOUCH_BUTTON_LABELS = { E: 'ACT', Q: 'DROP', L: 'LID' };
+const SMALL_TICKET_QUERY = '(max-height: 480px), (max-width: 560px)';
 
 let initialised = false;
 let hudRoot = null;
@@ -24,6 +25,14 @@ let debugOpen = false;
 let touchMode = false;
 let lastTouchAt = 0;
 let resetTouchInputs = null;
+let trainingMirror = true;
+let lastObservedTraining = undefined;
+let latestGuideStep = null;
+let stationAnchorsCache = null;
+let stationAnchorsGetter = null;
+let stationAnchorRefreshId = null;
+let stationProjectionPoint = null;
+let smallTicketMedia = null;
 
 let pendingPrompt = null;
 let pendingTickets = [];
@@ -42,6 +51,7 @@ let nextObjectKey = 1;
 let nextPrimitiveKey = 1;
 let toastRecords = [];
 let nextToastId = 1;
+let recentServedFault = null;
 let meterPipCount = -1;
 const textCache = new WeakMap();
 const styleCache = new WeakMap();
@@ -105,6 +115,39 @@ function emitInput(name, payload) {
   catch (error) { warn(name, error); }
 }
 
+function trainingIsOn() {
+  return trainingMirror;
+}
+
+function observeTrainingState() {
+  try {
+    const ownedValue = ctxRef?.state?.training;
+    if (typeof ownedValue !== 'boolean' || ownedValue === lastObservedTraining) return;
+    trainingMirror = ownedValue;
+    lastObservedTraining = ownedValue;
+  } catch (error) {
+    warn('training-state', error);
+  }
+}
+
+function syncTrainingUI() {
+  const on = trainingIsOn();
+  toggleClass(hudRoot, 'sb-training', on);
+  for (const button of [nodes.titleTrainingToggle, nodes.playTrainingToggle]) {
+    if (!button) continue;
+    button.setAttribute('aria-pressed', String(on));
+    writeText(button.querySelector?.('.sb-training-toggle-state'), on ? 'ON' : 'OFF');
+  }
+}
+
+function requestTrainingToggle() {
+  const on = !trainingIsOn();
+  trainingMirror = on;
+  syncTrainingUI();
+  // training:set is the HUD's request event; the contract only names guide:step.
+  emitInput('training:set', { on });
+}
+
 function setTouchMode(on) {
   const next = Boolean(on);
   if (touchMode === next) {
@@ -134,6 +177,11 @@ function touchButtonText(value) {
 
 function money(value) {
   return Math.max(0, finite(value, 0)).toFixed(2);
+}
+
+function timestamp() {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now() : Date.now();
 }
 
 function orderKey(order) {
@@ -269,10 +317,20 @@ function buildTicketRail() {
   rail.setAttribute('aria-label', 'Outstanding orders');
   const more = el('div', 'sb-more-orders');
   more.hidden = true;
-  rail.append(more);
+  const panel = el('section', 'sb-guide-panel');
+  panel.hidden = true;
+  panel.setAttribute('aria-live', 'polite');
+  panel.setAttribute('aria-label', 'Training next step');
+  const heading = el('div', 'sb-guide-heading');
+  const label = el('strong', 'sb-guide-label');
+  const counter = el('span', 'sb-guide-counter');
+  heading.append(label, counter);
+  const hint = el('div', 'sb-guide-hint');
+  panel.append(heading, hint);
+  rail.append(more, panel);
   hudRoot.append(rail);
-  nodes.ticketRail = rail;
-  nodes.moreOrders = more;
+  Object.assign(nodes, { ticketRail: rail, moreOrders: more, guidePanel: panel,
+    guideLabel: label, guideCounter: counter, guideHint: hint });
 }
 
 function makeTicket(order, key) {
@@ -350,6 +408,26 @@ function removeTicketRecord(record) {
   }, 230);
 }
 
+function ticketCardCap() {
+  return smallTicketMedia?.matches ? 3 : 5;
+}
+
+function wireTicketViewport() {
+  if (typeof matchMedia !== 'function') return;
+  try {
+    smallTicketMedia = matchMedia(SMALL_TICKET_QUERY);
+    const refreshTickets = () => {
+      try { applyTickets(currentOrders); }
+      catch (error) { warn('ticket-viewport-change', error); }
+    };
+    if (typeof smallTicketMedia?.addEventListener === 'function') {
+      smallTicketMedia.addEventListener('change', refreshTickets);
+    } else if (typeof smallTicketMedia?.addListener === 'function') {
+      smallTicketMedia.addListener(refreshTickets);
+    }
+  } catch (error) { warn('ticket-viewport', error); }
+}
+
 function applyTickets(list) {
   const source = Array.isArray(list) ? list : [];
   const nextOrders = [];
@@ -362,6 +440,14 @@ function applyTickets(list) {
     seen.add(key);
     nextOrders.push(order);
     keys.push(key);
+  }
+
+  const cap = ticketCardCap();
+  const visibleKeys = keys.slice(0, cap);
+  const visibleKeySet = new Set(visibleKeys);
+  for (let index = 0; index < visibleKeys.length; index += 1) {
+    const key = visibleKeys[index];
+    const order = nextOrders[index];
     let record = ticketRecords.get(key);
     if (!record) {
       record = makeTicket(order, key);
@@ -373,19 +459,18 @@ function applyTickets(list) {
   }
 
   for (const [key, record] of ticketRecords) {
-    if (!seen.has(key)) removeTicketRecord(record);
+    if (!visibleKeySet.has(key)) removeTicketRecord(record);
   }
 
   currentOrders = nextOrders;
   const rail = nodes.ticketRail;
-  for (let index = 0; index < keys.length; index += 1) {
-    const record = ticketRecords.get(keys[index]);
+  for (let index = 0; index < visibleKeys.length; index += 1) {
+    const record = ticketRecords.get(visibleKeys[index]);
     if (!record) continue;
     toggleClass(record.el, 'sb-is-front', index === 0);
-    record.el.hidden = index >= 5;
     rail?.insertBefore?.(record.el, nodes.moreOrders ?? null);
   }
-  const extra = Math.max(0, nextOrders.length - 5);
+  const extra = Math.max(0, nextOrders.length - cap);
   writeText(nodes.moreOrders, `+${extra} MORE`);
   if (nodes.moreOrders) nodes.moreOrders.hidden = extra === 0;
 }
@@ -407,7 +492,7 @@ function patienceFor(record) {
 }
 
 function updateTicketsFrame() {
-  const visible = currentOrders.slice(0, 5);
+  const visible = currentOrders.slice(0, ticketCardCap());
   for (const order of visible) {
     const record = ticketRecords.get(orderKey(order));
     if (!record || record.removing) continue;
@@ -443,6 +528,9 @@ function buildMeter() {
   const barWrap = el('div', 'sb-meter-bar-wrap');
   const track = el('div', 'sb-meter-track');
   const zone = el('div', 'sb-meter-zone');
+  const zoneLabel = el('span', 'sb-meter-zone-label');
+  zoneLabel.hidden = true;
+  zone.append(zoneLabel);
   const fill = el('div', 'sb-meter-fill');
   const needle = el('div', 'sb-meter-needle');
   track.append(zone, fill, needle);
@@ -453,7 +541,7 @@ function buildMeter() {
   hudRoot.append(meter);
   Object.assign(nodes, { meter, meterCaption: caption, meterReadout: readout, meterGood: good,
     meterBarWrap: barWrap, meterTrack: track, meterZone: zone, meterFill: fill,
-    meterNeedle: needle, meterPips: pips });
+    meterNeedle: needle, meterPips: pips, meterZoneLabel: zoneLabel });
 }
 
 function rawZone(cfg) {
@@ -518,6 +606,12 @@ function renderMeter(cfg) {
     }
     writeText(nodes.meterCaption, renderable(cfg?.label, 'SYRUP').toUpperCase());
     writeText(nodes.meterReadout, suppliedText ?? (target > 0 ? `${done} / ${target}` : `${done}`));
+    if (nodes.meterZoneLabel && nodes.meterTrack) {
+      nodes.meterTrack.append(nodes.meterZoneLabel);
+      writeText(nodes.meterZoneLabel, 'this many');
+      writeStyle(nodes.meterZoneLabel, 'left', `${clamp(((target - 0.5) / pipCount) * 100, 0, 100).toFixed(2)}%`);
+      nodes.meterZoneLabel.hidden = target <= 0;
+    }
     nodes.meterGood.hidden = true;
     toggleClass(nodes.meter, 'sb-is-in-zone', done === target && target > 0);
     toggleClass(nodes.meter, 'sb-is-over', done > target && target > 0);
@@ -551,6 +645,13 @@ function renderMeter(cfg) {
   writeStyle(nodes.meterFill, 'width', `${percent.toFixed(2)}%`);
   writeStyle(nodes.meterNeedle, 'left', `${percent.toFixed(2)}%`);
   nodes.meterZone.hidden = !zone;
+  if (nodes.meterZoneLabel && nodes.meterZone) {
+    nodes.meterZone.append(nodes.meterZoneLabel);
+    writeText(nodes.meterZoneLabel, kind === 'dose' ? 'stop here'
+      : kind === 'steam' || kind === 'shot' ? 'release here' : 'aim here');
+    writeStyle(nodes.meterZoneLabel, 'left', '50%');
+    nodes.meterZoneLabel.hidden = !zone;
+  }
   if (zone) {
     writeStyle(nodes.meterZone, 'left', `${((zone[0] / max) * 100).toFixed(2)}%`);
     writeStyle(nodes.meterZone, 'width', `${(((zone[1] - zone[0]) / max) * 100).toFixed(2)}%`);
@@ -579,12 +680,195 @@ function buildStats() {
   }
   heartsCell.append(heartsLabel, hearts);
   strip.append(clock.cell, cash.cell, tips.cell, served.cell, heartsCell);
+  const trainingToggle = makeTrainingToggle('sb-training-toggle-play', 'TRAINING MODE');
   const rush = el('div', 'sb-rush-banner');
   rush.hidden = true;
-  region.append(strip, rush);
+  region.append(strip, trainingToggle, rush);
   hudRoot.append(region);
   Object.assign(nodes, { statStrip: strip, statClock: clock.value, statCash: cash.value,
-    statTips: tips.value, statServed: served.value, hearts: heartNodes, rush });
+    statTips: tips.value, statServed: served.value, hearts: heartNodes, rush,
+    playTrainingToggle: trainingToggle });
+  trainingToggle.addEventListener('click', requestTrainingToggle);
+}
+
+function makeTrainingToggle(extraClass, label) {
+  const button = el('button', `sb-training-toggle${extraClass ? ` ${extraClass}` : ''}`);
+  button.type = 'button';
+  button.append(el('span', 'sb-training-toggle-label', label),
+    el('span', 'sb-training-toggle-state', 'ON'));
+  return button;
+}
+
+function buildStationMarker() {
+  const marker = el('div', 'sb-station-marker');
+  marker.hidden = true;
+  marker.setAttribute('aria-hidden', 'true');
+  marker.append(el('span', 'sb-station-marker-ring'), el('span', 'sb-station-marker-arrow'));
+  hudRoot.append(marker);
+  nodes.stationMarker = marker;
+}
+
+function hideStationMarker() {
+  if (nodes.stationMarker && !nodes.stationMarker.hidden) nodes.stationMarker.hidden = true;
+}
+
+function anchorFromMap(anchors, stationId) {
+  if (!anchors) return null;
+  try {
+    if (typeof anchors.get === 'function') return anchors.get(stationId) ?? null;
+    if (typeof anchors === 'object') return anchors[stationId] ?? null;
+  } catch (_) { /* Anchor lookup is optional. */ }
+  return null;
+}
+
+function refreshStationAnchors(getter, equipment) {
+  try {
+    const anchors = getter.call(equipment);
+    stationAnchorsCache = anchors && typeof anchors === 'object' ? anchors : null;
+  } catch (_) {
+    stationAnchorsCache = null;
+  }
+}
+
+function copyStationAnchor(anchor) {
+  if (!stationProjectionPoint || !anchor) return false;
+  const x = Number(anchor.x);
+  const y = Number(anchor.y);
+  const z = Number(anchor.z);
+  if (![x, y, z].every(Number.isFinite)) return false;
+  stationProjectionPoint.set(x, y, z);
+  return true;
+}
+
+function resolveStationPosition(stationId) {
+  if (!stationProjectionPoint) return false;
+  const equipment = ctxRef?.equipment;
+  const getter = equipment?.getStationAnchors;
+  if (typeof getter === 'function') {
+    if (getter !== stationAnchorsGetter) {
+      stationAnchorsGetter = getter;
+      stationAnchorsCache = null;
+      stationAnchorRefreshId = null;
+    }
+    if (!stationAnchorsCache) refreshStationAnchors(getter, equipment);
+    let anchor = anchorFromMap(stationAnchorsCache, stationId);
+    if (!anchor && stationAnchorRefreshId !== stationId) {
+      // A cached map can predate equipment construction, so retry a missing station once.
+      stationAnchorRefreshId = stationId;
+      refreshStationAnchors(getter, equipment);
+      anchor = anchorFromMap(stationAnchorsCache, stationId);
+    }
+    if (copyStationAnchor(anchor)) return true;
+  }
+
+  // CONTRACT.md names getStationAnchors(), but equipment is not currently on ctx;
+  // interactables are the HUD's import-free fallback until the coordinator exposes it.
+  const interactables = ctxRef?.interactables;
+  if (!Array.isArray(interactables)) return false;
+  for (const entry of interactables) {
+    if (entry?.id !== stationId || typeof entry?.object?.getWorldPosition !== 'function') continue;
+    try {
+      entry.object.getWorldPosition(stationProjectionPoint);
+      return [stationProjectionPoint.x, stationProjectionPoint.y, stationProjectionPoint.z]
+        .every(Number.isFinite);
+    } catch (_) {
+      return false;
+    }
+  }
+  return false;
+}
+
+function updateStationMarkerFrame() {
+  const marker = nodes.stationMarker;
+  const stationId = renderable(latestGuideStep?.station, '');
+  const screenOpen = !nodes.titleScreen?.hidden || !nodes.endScreen?.hidden;
+  if (!marker || !trainingIsOn() || !latestGuideStep || !stationId || screenOpen || !ctxRef?.camera) {
+    hideStationMarker();
+    return;
+  }
+
+  try {
+    if (!resolveStationPosition(stationId)) {
+      hideStationMarker();
+      return;
+    }
+    stationProjectionPoint.project(ctxRef.camera);
+    const ndcX = stationProjectionPoint.x;
+    const ndcY = stationProjectionPoint.y;
+    const ndcZ = stationProjectionPoint.z;
+    const canvas = ctxRef?.renderer?.domElement;
+    const fallbackWidth = typeof innerWidth === 'number' ? innerWidth : 0;
+    const fallbackHeight = typeof innerHeight === 'number' ? innerHeight : 0;
+    const width = finite(canvas?.clientWidth, 0) || finite(fallbackWidth, 0);
+    const height = finite(canvas?.clientHeight, 0) || finite(fallbackHeight, 0);
+    if (![ndcX, ndcY, ndcZ, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+      hideStationMarker();
+      return;
+    }
+
+    const projectedX = (ndcX * 0.5 + 0.5) * width;
+    const projectedY = (-ndcY * 0.5 + 0.5) * height;
+    if (![projectedX, projectedY].every(Number.isFinite)) {
+      hideStationMarker();
+      return;
+    }
+
+    const behind = ndcZ > 1;
+    const offScreen = projectedX < 0 || projectedX > width || projectedY < 0 || projectedY > height;
+    let x = projectedX;
+    let y = projectedY;
+    let angle = 0;
+    if (behind || offScreen) {
+      const centreX = width * 0.5;
+      const centreY = height * 0.5;
+      let directionX = projectedX - centreX;
+      let directionY = projectedY - centreY;
+      if (behind) {
+        // Perspective projection mirrors points behind the camera.
+        directionX = -directionX;
+        directionY = -directionY;
+      }
+      if (Math.abs(directionX) + Math.abs(directionY) < 0.0001) directionY = -1;
+      const margin = Math.max(1, Math.min(24, width * 0.5 - 1, height * 0.5 - 1));
+      const halfWidth = Math.max(1, width * 0.5 - margin);
+      const halfHeight = Math.max(1, height * 0.5 - margin);
+      const edgeScale = 1 / Math.max(Math.abs(directionX) / halfWidth, Math.abs(directionY) / halfHeight);
+      x = clamp(centreX + directionX * edgeScale, margin, width - margin);
+      y = clamp(centreY + directionY * edgeScale, margin, height - margin);
+      angle = Math.atan2(directionY, directionX) * 180 / Math.PI;
+    }
+
+    toggleClass(marker, 'sb-is-edge', behind || offScreen);
+    const transform = behind || offScreen
+      ? `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) translate(-50%, -50%) rotate(${angle.toFixed(2)}deg)`
+      : `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) translate(-50%, -50%)`;
+    writeStyle(marker, 'transform', transform);
+    if (marker.hidden) marker.hidden = false;
+  } catch (_) {
+    hideStationMarker();
+  }
+}
+
+function renderGuideStep(payload) {
+  if (!nodes.guidePanel) return;
+  const step = payload && typeof payload === 'object' ? payload : null;
+  const label = renderable(step?.label, '');
+  const hint = renderable(step?.hint, '');
+  const hasCounter = Number.isFinite(step?.index) && Number.isFinite(step?.total);
+  let counter = '';
+  if (hasCounter) {
+    const total = Math.max(1, Math.floor(step.total));
+    const index = step.index < step.total && step.index + 1 <= step.total
+      ? step.index + 1 : step.index;
+    counter = `${clamp(Math.floor(index), 1, total)} of ${total}`;
+  }
+  writeText(nodes.guideLabel, label);
+  writeText(nodes.guideHint, hint);
+  writeText(nodes.guideCounter, counter);
+  nodes.guideLabel.hidden = !label;
+  nodes.guideHint.hidden = !hint;
+  nodes.guideCounter.hidden = !counter;
+  nodes.guidePanel.hidden = !(label || hint || counter);
 }
 
 function statCell(label, value, extraClass = '') {
@@ -830,12 +1114,17 @@ function armToast(record) {
   }, 2200);
 }
 
-function addToast(text, ok) {
+function addToast(text, ok, secondary, tertiary) {
   const message = renderable(text, '');
+  const secondaryText = renderable(secondary, '');
+  const tertiaryText = renderable(tertiary, '');
   if (!message || !nodes.toastStack) return;
-  const now = typeof performance !== 'undefined' && typeof performance.now === 'function'
-    ? performance.now() : Date.now();
-  const duplicate = [...toastRecords].reverse().find(record => !record.exiting && record.text === message && now - record.lastAt <= 400);
+  const now = timestamp();
+  const duplicate = [...toastRecords].reverse().find(record => !record.exiting
+    && record.text === message
+    && record.secondaryText === secondaryText
+    && record.tertiaryText === tertiaryText
+    && now - record.lastAt <= 400);
   if (duplicate) {
     duplicate.count += 1;
     duplicate.lastAt = now;
@@ -852,11 +1141,18 @@ function addToast(text, ok) {
   const active = toastRecords.filter(record => !record.exiting);
   if (active.length >= 2) scheduleToastExit(active[0]);
   const toastEl = el('div', `sb-toast ${ok === true ? 'sb-toast-ok' : ok === false ? 'sb-toast-bad' : 'sb-toast-neutral'}`);
+  const body = el('span', 'sb-toast-body');
   const copy = el('span', 'sb-toast-copy', touchButtonText(message));
+  const secondaryNode = secondaryText ? el('span', 'sb-toast-note', touchButtonText(secondaryText)) : null;
+  const tertiaryNode = tertiaryText ? el('span', 'sb-toast-note', touchButtonText(tertiaryText)) : null;
   const count = el('span', 'sb-toast-count');
   count.hidden = true;
-  toastEl.append(copy, count);
-  const record = { id: nextToastId++, el: toastEl, copyNode: copy, countNode: count, text: message,
+  body.append(copy);
+  if (secondaryNode) body.append(secondaryNode);
+  if (tertiaryNode) body.append(tertiaryNode);
+  toastEl.append(body, count);
+  const record = { id: nextToastId++, el: toastEl, copyNode: copy, secondaryNode, tertiaryNode,
+    countNode: count, text: message, secondaryText, tertiaryText,
     count: 1, lastAt: now, exiting: false, lifeTimer: 0, removeTimer: 0 };
   toastRecords.push(record);
   nodes.toastStack.append(toastEl);
@@ -866,6 +1162,8 @@ function addToast(text, ok) {
 function renderToastText() {
   for (const record of toastRecords) {
     writeText(record?.copyNode, touchButtonText(record?.text));
+    writeText(record?.secondaryNode, touchButtonText(record?.secondaryText));
+    writeText(record?.tertiaryNode, touchButtonText(record?.tertiaryText));
   }
 }
 
@@ -907,6 +1205,7 @@ function buildScreens() {
     item.append(keycap(key), el('span', 'sb-control-label', description));
     touchControls.append(item);
   }
+  const trainingToggle = makeTrainingToggle('sb-training-toggle-title', 'TRAINING MODE');
   const start = el('button', 'sb-primary-button', 'START SHIFT');
   start.type = 'button';
   const footer = el('p', 'sb-screen-footer', 'no assets · everything drawn and synthesised at runtime');
@@ -915,7 +1214,7 @@ function buildScreens() {
   source.target = '_blank';
   source.rel = 'noopener noreferrer';
   footer.append(document.createElement('br'), source);
-  titleCard.append(wordmark, rule, premise, controls, touchControls, start, footer);
+  titleCard.append(wordmark, rule, premise, controls, touchControls, trainingToggle, start, footer);
   titleScreen.append(titleCard);
 
   const endScreen = el('section', 'sb-screen sb-end-screen');
@@ -937,14 +1236,20 @@ function buildScreens() {
     grid.append(item);
     endFields[name] = valueNode;
   }
+  const endFaults = el('section', 'sb-end-faults');
+  endFaults.hidden = true;
+  const endFaultHeading = el('h3', 'sb-end-fault-heading', 'WATCH FOR');
+  const endFaultList = el('div', 'sb-end-fault-list');
+  endFaults.append(endFaultHeading, endFaultList);
   const replay = el('button', 'sb-primary-button', 'PLAY AGAIN');
   replay.type = 'button';
-  endCard.append(endEyebrow, rank, grid, replay);
+  endCard.append(endEyebrow, rank, grid, endFaults, replay);
   endScreen.append(endCard);
   hudRoot.append(titleScreen, endScreen);
   Object.assign(nodes, { titleScreen, titleStart: start, endScreen, endRank: rank,
-    endFields, replay });
+    endFields, endFaults, endFaultList, replay, titleTrainingToggle: trainingToggle });
 
+  trainingToggle.addEventListener('click', requestTrainingToggle);
   start.addEventListener('click', () => activateTitle());
   replay.addEventListener('click', () => {
     try { globalThis.location?.reload?.(); } catch (error) { warn('reload', error); }
@@ -976,6 +1281,7 @@ function showTitleInternal(onStart) {
   nodes.endScreen.hidden = true;
   nodes.titleScreen.hidden = false;
   titleDismissed = false;
+  syncTrainingUI();
   toggleClass(hudRoot, 'sb-screen-open', true);
   updatePointerLockHint();
   try { nodes.titleStart?.focus?.({ preventScroll: true }); } catch (_) { /* focus is optional */ }
@@ -1029,6 +1335,22 @@ function renderEndCard(summary) {
   writeText(nodes.endFields?.tips, `£${money(tips)}`);
   writeText(nodes.endFields?.money, `£${money(total)}`);
   writeText(nodes.endFields?.lost, String(lost));
+  const topFaults = Array.isArray(safeSummary?.topFaults) ? safeSummary.topFaults
+    .map(item => {
+      const label = renderable(item?.label, '');
+      return { label, count: Number.isFinite(item?.count) ? item.count : 1 };
+    })
+    .filter(item => item.label)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3) : [];
+  nodes.endFaultList?.replaceChildren?.();
+  for (const fault of topFaults) {
+    const row = el('div', 'sb-end-fault');
+    row.append(el('span', 'sb-end-fault-label', fault.label),
+      el('span', 'sb-end-fault-count', `×${fault.count}`));
+    nodes.endFaultList?.append(row);
+  }
+  if (nodes.endFaults) nodes.endFaults.hidden = topFaults.length === 0;
   nodes.titleScreen.hidden = true;
   nodes.endScreen.hidden = false;
   titleDismissed = true;
@@ -1341,6 +1663,13 @@ function onKeyDown(event) {
       toggleDebug();
       return;
     }
+    if (event?.code === 'KeyT' && !event?.repeat) {
+      if (!nodes.titleScreen?.hidden || !nodes.endScreen?.hidden) return;
+      event.preventDefault?.();
+      requestTrainingToggle();
+      return;
+    }
+    if (event?.target === nodes.titleTrainingToggle) return;
     if (!nodes.titleScreen?.hidden && (event?.code === 'Enter' || event?.code === 'Space')) {
       event.preventDefault?.();
       activateTitle();
@@ -1364,6 +1693,18 @@ function subscribe(name, handler) {
 }
 
 function wireBus() {
+  subscribe('training:changed', payload => {
+    const ownedValue = payload?.training;
+    if (typeof ownedValue !== 'boolean') return;
+    trainingMirror = ownedValue;
+    lastObservedTraining = ownedValue;
+    syncTrainingUI();
+  });
+  subscribe('guide:step', payload => {
+    latestGuideStep = payload && typeof payload === 'object' ? payload : null;
+    stationAnchorRefreshId = null;
+    renderGuideStep(latestGuideStep);
+  });
   subscribe('order:new', payload => {
     const order = payload?.order;
     if (order != null) {
@@ -1376,9 +1717,9 @@ function wireBus() {
   subscribe('order:served', payload => {
     const order = payload?.order;
     removeOrder(order);
+    const score = finite(payload?.score, NaN);
     let amount = finite(payload?.paid, NaN);
     if (!Number.isFinite(amount)) {
-      const score = finite(payload?.score, NaN);
       const price = finite(payload?.order?.price, NaN);
       if (Number.isFinite(score) && score > 1.5) amount = score;
       else if (Number.isFinite(score) && Number.isFinite(price)) amount = score * price;
@@ -1389,7 +1730,16 @@ function wireBus() {
     const tipText = tip > 0 ? `  +£${tip.toFixed(2)} TIP` : '';
     const drink = orderDrink(order).toUpperCase();
     const text = Number.isFinite(amount) ? `+£${amount.toFixed(2)}  ${drink}${tipText}` : `SERVED · ${drink}`;
-    addToast(text, true);
+    const notes = Array.isArray(payload?.notes) ? payload.notes : [];
+    const note = typeof notes[0] === 'string' ? notes[0].trim() : '';
+    const fix = typeof payload?.tip_text === 'string' ? payload.tip_text.trim() : '';
+    const hasCorrect = payload?.correct === true || payload?.correct === false;
+    const hasScore = Number.isFinite(score);
+    const notPerfect = payload?.correct === false || (hasScore && score < 1)
+      || (!hasCorrect && !hasScore && Boolean(note || fix));
+    const fault = notPerfect ? note : '';
+    addToast(text, true, fault, notPerfect ? fix : '');
+    if (fault) recentServedFault = { text: fault, at: timestamp() };
   });
   subscribe('order:lost', payload => {
     const order = payload?.order;
@@ -1400,12 +1750,22 @@ function wireBus() {
   });
   subscribe('station:feedback', payload => {
     const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
-    if (text) addToast(text, payload?.ok);
+    if (!text) return;
+    if (recentServedFault) {
+      const elapsed = timestamp() - recentServedFault.at;
+      if (elapsed >= 0 && elapsed <= 1200 && text === recentServedFault.text) {
+        recentServedFault = null;
+        return;
+      }
+      if (elapsed > 1200) recentServedFault = null;
+    }
+    addToast(text, payload?.ok);
   });
   subscribe('cup:changed', payload => { renderCup(payload?.cup); });
   subscribe('shift:start', () => {
     applyTickets([]);
     clearToasts();
+    recentServedFault = null;
     lastLost = 0;
     if (!statsExplicit) lastStatsState = {};
     updateStatsFrame();
@@ -1416,13 +1776,17 @@ function wireBus() {
 
 function frame() {
   if (!initialised) return;
+  try { observeTrainingState(); } catch (error) { warn('training-observe-frame', error); }
+  try { syncTrainingUI(); } catch (error) { warn('training-frame', error); }
   try { updateTicketsFrame(); } catch (error) { warn('ticket-frame', error); }
   try { updateStatsFrame(); } catch (error) { warn('stats-frame', error); }
   try { updatePointerLockHint(); } catch (error) { warn('pointer-lock-frame', error); }
+  try { updateStationMarkerFrame(); } catch (error) { warn('station-marker-frame', error); }
   try { requestAnimationFrame(frame); } catch (error) { warn('raf', error); }
 }
 
 function applyPending() {
+  renderGuideStep(latestGuideStep);
   renderPrompt(pendingPrompt);
   applyTickets(pendingTickets);
   if (pendingMeter !== undefined) renderMeter(pendingMeter);
@@ -1439,6 +1803,9 @@ export function initHUD(ctx) {
     if (typeof document === 'undefined') return;
     ctxRef = ctx && typeof ctx === 'object' ? ctx : {};
     bus = ctxRef?.bus ?? null;
+    trainingMirror = true;
+    lastObservedTraining = undefined;
+    observeTrainingState();
     lastStatsState = lastStatsState ?? {};
     let css = document.getElementById('sb-hud-css');
     if (!css) {
@@ -1455,8 +1822,13 @@ export function initHUD(ctx) {
       document.body?.append?.(hudRoot);
     }
     hudRoot.classList.add('sb-hud');
+    try {
+      if (typeof ctxRef?.THREE?.Vector3 === 'function') stationProjectionPoint = new ctxRef.THREE.Vector3();
+    } catch (_) { stationProjectionPoint = null; }
+    buildStationMarker();
     buildPrompt();
     buildTicketRail();
+    wireTicketViewport();
     buildMeter();
     buildStats();
     buildCupChip();
@@ -1464,6 +1836,7 @@ export function initHUD(ctx) {
     buildScreens();
     buildDebug(ctxRef?.layout);
     buildTouchControls();
+    syncTrainingUI();
     addEventListener('keydown', onKeyDown);
     document.addEventListener('pointerlockchange', onPointerLockChange);
     wireBus();
