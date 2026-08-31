@@ -470,3 +470,42 @@ New bus event: `guide:step` with
 the held cup or the front ticket changes, and `null` when there is nothing to
 do. The HUD renders it only in training mode, but stations.js emits it always,
 so the panel cannot go stale when the mode is switched on mid-drink.
+
+## 12. THINGS A FUTURE SESSION SHOULD KNOW
+Hazards found during the build that are not obvious from the code.
+
+**Note wording in `orders.js` is a fallback path, no longer load-bearing.**
+`faultsFromNotes` classifies by prefix — a milk note must start `Milk `, a
+shot note `Shot ` — and rephrasing one would silently re-file it. That path is
+now only the fallback: `stations.js` forwards structured `faults` on
+`order:served` and `state.js` prefers it. Keep it that way. The completeness
+test catches a note with NO code, but not one that matches the WRONG code, so
+the prose path can never be fully trusted.
+
+**The pickup-overflow bug's shape will recur.** Customers piling up east of
+the last pickup slot stood inside the merch shelf. It was latent for the whole
+project and only became reachable when training mode removed the walk-out
+shift-end that had been truncating the queue at about six orders. Any future
+change that lets a shift run longer, or lets more customers accumulate, can
+expose more code written under the old assumption.
+`test/sim/geo.mjs` and `test/sim/slots.mjs` are what would catch the next one.
+
+**Measure the scene after `updateMatrixWorld`.** `window.SIMBUCKS` is set
+before the first render, so world matrices are identity and every fitting sits
+stacked at the origin. Three separate measurements in this project produced
+confident, wrong answers that way. Call `scene.updateMatrixWorld(true)` first.
+
+**A hidden tab lies in two directions.** `requestAnimationFrame` is throttled,
+so the render loop and the HUD's own frame loop stop — a HUD flag can read
+stale forever. And `document.hidden` gates player input, so a console driver
+sees the sim advance under `ctx.step()` while every input is silently dropped.
+Spoof `document.hidden` and dispatch `visibilitychange` before driving input.
+
+**Guards that test `scene.children` do not work.** Every builder returns a
+Group, so a top-level check never sees the lights or the floor inside them.
+This shipped a double-lit scene and a duplicate floor plane for most of the
+build. Recurse.
+
+**Bounding boxes have eaten three props.** A circumscribed circle rejected a
+0.05 m sliver as if it were 1 m wide; an unrotated AABB nearly sat three stool
+sitters across a rotated table. Use the rectangle, and rotate it.
