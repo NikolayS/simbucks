@@ -423,8 +423,18 @@ reaches the screen: the HUD renders `+£3.55 AMERICANO` and discards the rest.
   biggest loss and how to fix it — "You pulled 2 shots; an Americano takes 1"
   or "Milk hit 78 °C; release the wand between 60 and 68". Never vague, never
   "needed work", always a number or a named action the player can repeat.
-- `order:served` must carry `{order, score, tip, notes, tip_text, correct}`.
+- `order:served` must carry
+  `{order, score, tip, notes, tip_text, correct, faults}`.
   Whoever emits it may not drop fields it was given.
+  **`faults: [{code, label}]` is the structured form** and the shift tally must
+  read it. Without it, `state.js` has to reconstruct fault categories by
+  regex-matching the English of `notes[]` — which makes note WORDING
+  load-bearing, so rephrasing "Milk hit 78 °C" would silently re-file it. That
+  is the same "the simulation knows and does not say" shape as the bug this
+  section exists to fix, one layer down. Parse the fact, never the sentence.
+  (Naming regret, kept for consistency now that four files use it: `tip_text`
+  is snake_case in a camelCase codebase and reads as a sibling of the money
+  `tip` on the same payload. `coachingText` would have been the better name.)
 - The HUD renders the top note on the toast, and `tip_text` under it when the
   drink was not perfect. The end-of-shift card lists the three most common
   faults of the shift, so a player learns their own pattern.
