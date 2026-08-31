@@ -157,4 +157,257 @@ console.log('\nretained-payload isolation over ' + retained.length + ' handoffs:
 for (const pr of problems) console.log('   ' + pr);
 if (problems.length) process.exitCode = 1;
 
+// --- score feedback, note classification, fault tally, and training-mode coverage ---
+const state = await import(REPO + '/game/state.js');
+const coverageFailures = [];
+function coverageCheck(ok, message) {
+  console.log((ok ? 'ok' : 'FAIL') + ' ' + message);
+  if (!ok) coverageFailures.push(message);
+}
+function sameValue(actual, expected) {
+  return JSON.stringify(actual) === JSON.stringify(expected);
+}
+
+console.log('\nserved-note coverage:');
+let coveredNoteCount = 0;
+function checkCoveredNote(note, source) {
+  coveredNoteCount++;
+  const shown = JSON.stringify(note);
+  const maxLength = typeof note === 'string' && note.startsWith('Wrong drink — ') ? 96 : 72;
+  coverageCheck(typeof note === 'string' && note.length <= maxLength,
+    `${source} note is at most ${maxLength} characters: ${shown}`);
+  const classified = orders.faultsFromNotes([note]);
+  coverageCheck(classified.length === 1
+    && typeof classified[0]?.code === 'string' && classified[0].code.length > 0
+    && typeof classified[0]?.label === 'string' && classified[0].label.length > 0,
+  `${source} note classifies exactly once: ${shown}`);
+}
+for (const entry of served) {
+  for (const note of entry.identity?.notes ?? []) {
+    checkCoveredNote(note, 'served');
+  }
+}
+
+function syntheticOrder(drinkId) {
+  const drink = menu.getDrink(drinkId);
+  return {
+    drink,
+    size: 'tall',
+    steps: menu.recipeFor(drink, 'tall'),
+    price: drink.price,
+    patience: 90,
+    t0: 0,
+  };
+}
+function syntheticSteps(drinkId) {
+  return menu.recipeFor(menu.getDrink(drinkId), 'tall')
+    .map(step => ({ station: step.station, param: step.param, quality: 1 }));
+}
+function syntheticBuild(drinkId, size = 'tall', alterSteps = steps => steps) {
+  return {
+    drink: drinkId,
+    size,
+    steps: alterSteps(syntheticSteps(drinkId)),
+    elapsed: 0,
+  };
+}
+function scoreSynthetic(ticketId, builtId, alterSteps = steps => steps) {
+  return orders.scoreOrder(syntheticOrder(ticketId), syntheticBuild(builtId, 'tall', alterSteps));
+}
+
+console.log('\ndirect scoreOrder tip_text coverage:');
+const directResults = {
+  perfect: scoreSynthetic('americano', 'americano'),
+  'wrong drink': scoreSynthetic('latte', 'americano'),
+  'scorched milk': scoreSynthetic('latte', 'latte', steps => steps.map(step =>
+    step.station === 'steamWand' && step.param === 'steam'
+      ? { ...step, quality: 0.2, temp: 78 } : step)),
+  'cold milk': scoreSynthetic('latte', 'latte', steps => steps.map(step =>
+    step.station === 'steamWand' && step.param === 'steam'
+      ? { ...step, quality: 0.2, temp: 50 } : step)),
+  'wrong syrup count': scoreSynthetic('chaiLatte', 'chaiLatte', steps => steps.map(step =>
+    step.station === 'syrupRack' ? { ...step, param: 3 } : step)),
+  'over-extracted shot': scoreSynthetic('americano', 'americano', steps => steps.map(step =>
+    step.station === 'espresso' && step.param === 'pull'
+      ? { ...step, quality: 0.3, seconds: 34 } : step)),
+  'extra shot': scoreSynthetic('americano', 'americano', steps => [
+    ...steps,
+    { station: 'espresso', param: 'pull', quality: 1 },
+  ]),
+};
+for (const [name, result] of Object.entries(directResults)) {
+  console.log(`${name}: ${result.tip_text}`);
+  for (const note of result.notes) checkCoveredNote(note, `direct ${name}`);
+}
+
+const perfectResult = directResults.perfect;
+coverageCheck(perfectResult.score === 1, 'perfect Americano score is exactly 1');
+coverageCheck(perfectResult.notes.length === 0, 'perfect Americano has no notes');
+coverageCheck(perfectResult.tip_text === '', 'perfect Americano tip_text is strictly empty');
+
+const wrongDrinkResult = directResults['wrong drink'];
+coverageCheck(wrongDrinkResult.notes[0]?.startsWith('Wrong drink — that is an Americano'),
+  'wrong-drink note names the built Americano');
+coverageCheck(wrongDrinkResult.tip_text.length > 0 && /\d/.test(wrongDrinkResult.tip_text),
+  'wrong-drink tip_text is non-empty and contains a digit');
+
+const scorchedResult = directResults['scorched milk'];
+coverageCheck(scorchedResult.tip_text.includes('78') && scorchedResult.tip_text.includes('60')
+  && scorchedResult.tip_text.includes('68'),
+'scorched-milk tip_text names 78 and the 60–68 °C target');
+
+const coldResult = directResults['cold milk'];
+coverageCheck(coldResult.notes.some(note => note.includes('50')) && coldResult.tip_text.includes('50')
+  && !coldResult.notes.some(note => /scorched/i.test(note)) && !/scorched/i.test(coldResult.tip_text),
+'cold-milk note and tip name 50 without calling the milk scorched');
+
+const syrupResult = directResults['wrong syrup count'];
+coverageCheck(syrupResult.tip_text.includes('3') && syrupResult.tip_text.includes('2')
+  && /syrup/i.test(syrupResult.tip_text),
+'wrong-syrup tip_text names 3, 2, and syrup');
+
+const shotResult = directResults['over-extracted shot'];
+coverageCheck(shotResult.tip_text.includes('34') && shotResult.tip_text.includes('22')
+  && shotResult.tip_text.includes('30'),
+'over-extracted-shot tip_text names 34 and the 22–30 second target');
+
+const extraShotResult = directResults['extra shot'];
+coverageCheck(extraShotResult.tip_text.includes('2') && extraShotResult.tip_text.includes('1'),
+  'extra-shot tip_text names both the built count 2 and ticket count 1');
+
+for (const [name, result] of Object.entries(directResults).filter(([key]) => key !== 'perfect')) {
+  coverageCheck(result.score < 1 && result.notes.length > 0
+    && typeof result.tip_text === 'string' && result.tip_text.length > 0
+    && result.tip_text.length <= 120 && /\d/.test(result.tip_text)
+    && typeof result.faults?.[0]?.code === 'string' && result.faults[0].code.length > 0,
+  `${name} obeys the universal imperfect-order feedback rule`);
+}
+
+console.log('\nadditional fault-code scenarios:');
+const additionalScenarios = {
+  wrongSize: {
+    expectedCode: 'wrongSize',
+    result: orders.scoreOrder(syntheticOrder('americano'), syntheticBuild('americano', 'grande')),
+  },
+  wrongFoam: {
+    expectedCode: 'wrongFoam',
+    result: orders.scoreOrder(syntheticOrder('latte'), syntheticBuild('latte', 'tall', steps =>
+      steps.map(step => step.station === 'steamWand' && step.param === 'steam'
+        ? { ...step, foam: 'dry' } : step))),
+  },
+  missingStep: {
+    expectedCode: 'missingStep',
+    result: orders.scoreOrder(syntheticOrder('latte'), syntheticBuild('latte', 'tall', steps =>
+      steps.filter(step => step.station !== 'steamWand' || step.param !== 'pour'))),
+  },
+  sloppy: {
+    expectedCode: 'sloppy',
+    result: orders.scoreOrder(syntheticOrder('caramelFrappuccino'),
+      syntheticBuild('caramelFrappuccino', 'tall', steps => steps.map(step =>
+        step.station === 'blender' && step.param === 'blend'
+          ? { ...step, quality: 0.2 } : step))),
+  },
+  noTicket: {
+    expectedCode: 'noTicket',
+    result: orders.scoreOrder(null, syntheticBuild('americano')),
+  },
+  empty: {
+    expectedCode: 'empty',
+    result: orders.scoreOrder(syntheticOrder('americano'), { steps: [], size: 'tall' }),
+  },
+};
+for (const [name, scenario] of Object.entries(additionalScenarios)) {
+  const { expectedCode, result } = scenario;
+  console.log(`${name} note: ${result.notes[0]}`);
+  console.log(`${name} tip_text: ${result.tip_text}`);
+  for (const note of result.notes) checkCoveredNote(note, `direct ${name}`);
+  const classifications = result.notes.map(note => orders.faultsFromNotes([note]));
+  coverageCheck(result.notes.length > 0 && classifications.every(classified =>
+    classified.length === 1 && classified[0]?.code === expectedCode),
+  `${name} notes all classify as ${expectedCode}`);
+  coverageCheck(typeof result.tip_text === 'string' && result.tip_text.length > 0
+    && result.tip_text.length <= 120 && /\d/.test(result.tip_text),
+  `${name} tip_text is non-empty, at most 120 characters, and contains a digit`);
+}
+coverageCheck(coveredNoteCount >= 8,
+  `served and direct scoreOrder note coverage sees at least 8 notes (saw ${coveredNoteCount})`);
+
+const allScenarioResults = [
+  ...Object.values(directResults),
+  ...Object.values(additionalScenarios).map(scenario => scenario.result),
+];
+const producedScenarioCodes = new Set(allScenarioResults.flatMap(result =>
+  (result.faults ?? []).map(fault => fault.code)));
+
+console.log('\nstate fault-tally and training coverage:');
+const stateBus = createBus();
+const stateCtx = { bus: stateBus, state: state.createState() };
+let shiftSummary = null;
+let trainingChanged = null;
+stateBus.on('shift:end', payload => { shiftSummary = payload?.summary ?? null; });
+stateBus.on('training:changed', payload => { trainingChanged = payload; });
+const emitServedNotes = notes => stateBus.emit('order:served', {
+  order: { price: 0 }, score: 1, tip: 0, notes,
+});
+
+state.startShift(stateCtx);
+const wrongSizeNote = 'Wrong size — Grande 473 ml, the ticket says Tall 354 ml';
+const syrupNote = '3 pumps of syrup — the ticket says 2';
+const milkTemperatureNote = 'Milk stopped at 50 °C — the band is 60 to 68 °C';
+for (let i = 0; i < 3; i++) emitServedNotes([wrongSizeNote]);
+for (let i = 0; i < 2; i++) emitServedNotes([syrupNote]);
+emitServedNotes([milkTemperatureNote]);
+emitServedNotes([syrupNote, syrupNote]);
+state.endShift(stateCtx, 'time');
+const expectedTopFaults = [
+  { label: 'Wrong size', count: 3 },
+  { label: 'Syrup count', count: 3 },
+  { label: 'Milk temperature', count: 1 },
+];
+coverageCheck(sameValue(shiftSummary?.topFaults, expectedTopFaults),
+  'shift topFaults has the expected ordered top three');
+coverageCheck(stateCtx.state.faults?.syrup === 3,
+  'duplicate syrup notes on one drink contribute exactly once');
+
+state.startShift(stateCtx);
+emitServedNotes([]);
+state.endShift(stateCtx, 'time');
+coverageCheck(sameValue(shiftSummary?.topFaults, []), 'a clean shift ends with no top faults');
+
+state.startShift(stateCtx);
+coverageCheck(stateCtx.state.training === true,
+  'training defaults on when localStorage is unavailable');
+for (let i = 0; i < 3; i++) stateBus.emit('order:lost', {});
+coverageCheck(stateCtx.state.phase === 'playing' && stateCtx.state.lost === 3,
+  'three training walk-outs are counted without ending the shift');
+state.setTraining(stateCtx, false);
+coverageCheck(stateCtx.state.training === false, 'setTraining disables training');
+coverageCheck(sameValue(trainingChanged, { training: false }),
+  'setTraining emits training:changed with {training:false}');
+for (let i = 0; i < 3; i++) stateBus.emit('order:lost', {});
+coverageCheck(stateCtx.state.phase === 'over', 'walk-outs end the shift after training is disabled');
+coverageCheck(state.patienceScale({ training: true }) === 0.4,
+  'training patience scale is 0.4');
+coverageCheck(state.patienceScale({ training: false }) === 1,
+  'non-training patience scale is 1');
+
+state.startShift(stateCtx);
+const moneyBeforeTrainingServe = stateCtx.state.money;
+const tipsBeforeTrainingServe = stateCtx.state.tips;
+stateBus.emit('order:served', {
+  order: { price: 12.34 }, score: 1, tip: 2.25, notes: [],
+});
+coverageCheck(stateCtx.state.training === true && stateCtx.state.money === moneyBeforeTrainingServe + 12.34
+  && stateCtx.state.tips === tipsBeforeTrainingServe + 2.25,
+'money and tips accrue while training is on');
+
+const missingScenarioCodes = Object.keys(orders.FAULT_LABELS)
+  .filter(code => code !== 'wrongMilk' && !producedScenarioCodes.has(code));
+coverageCheck(missingScenarioCodes.length === 0,
+  missingScenarioCodes.length
+    ? `scoreOrder scenarios are missing FAULT_LABELS codes: ${missingScenarioCodes.join(', ')}`
+    : 'scoreOrder scenarios cover every FAULT_LABELS code except wrongMilk');
+
+if (coverageFailures.length) process.exitCode = 1;
+
 process.exit((fail || process.exitCode) ? 1 : 0);
