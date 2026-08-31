@@ -295,16 +295,8 @@ export function createStations(context) {
 
   function trainingOn() {
     try {
-      const t = ctx.state?.training;
-      if (t === null || t === undefined) return false;
-      if (typeof t === 'boolean') return t;
-      if (typeof t === 'object') {
-        for (const k of ['on', 'enabled', 'active']) {
-          if (typeof t[k] === 'boolean') return t[k];
-        }
-        return true;
-      }
-      return Boolean(t);
+      // Strict === true keeps an absent flag off instead of using a truthy test.
+      return ctx.state?.training === true;
     } catch (_error) {
       return false;
     }
