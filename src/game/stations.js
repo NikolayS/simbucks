@@ -293,6 +293,23 @@ export function createStations(context) {
     }
   }
 
+  function trainingOn() {
+    try {
+      const t = ctx.state?.training;
+      if (t === null || t === undefined) return false;
+      if (typeof t === 'boolean') return t;
+      if (typeof t === 'object') {
+        for (const k of ['on', 'enabled', 'active']) {
+          if (typeof t[k] === 'boolean') return t[k];
+        }
+        return true;
+      }
+      return Boolean(t);
+    } catch (_error) {
+      return false;
+    }
+  }
+
   function clearMeterDisplay() {
     if (!meterVisible) return;
     try {
@@ -936,7 +953,7 @@ export function createStations(context) {
         station = 'cupStack';
         label = sizeWord ? 'TAKE A ' + sizeWord + ' CUP' : 'TAKE A CUP';
         const targetIndex = SIZES.indexOf(order?.size);
-        hint = order?.size && SIZES[selectedSizeIndex] !== order.size
+        hint = targetIndex >= 0 && order?.size && SIZES[selectedSizeIndex] !== order.size
           ? 'tap at the cup stack until it says ' + SIZE_LABELS[targetIndex]
             + ', then hold to take it'
           : 'hold at the cup stack to take a cup';
@@ -1082,7 +1099,7 @@ export function createStations(context) {
     }
 
     let pumps = cup
-      ? clamp(Math.round(cup.contents?.syrup), 0, 8)
+      ? clamp(Math.round(cup.contents?.syrup), 0, CONFIG.syrup.maxPumps)
       : 0;
     if (portafilter.dosed) {
       pool.set('grinder:grind', (pool.get('grinder:grind') ?? 0) + 1);
@@ -1204,7 +1221,9 @@ export function createStations(context) {
       pumps / CONFIG.syrup.maxPumps,
       zone,
       'Syrup',
-      PUMP_TEXT[pumps],
+      trainingOn() && target >= 0
+        ? PUMP_TEXT[pumps] + ' · ticket wants ' + target
+        : PUMP_TEXT[pumps],
     );
     liveMeter = null;
     meterClearTime = -1;
@@ -1748,7 +1767,7 @@ export function createStations(context) {
           liveValue / CONFIG.dose.max,
           DOSE_METER_ZONE,
           'Dose',
-          'Release in the green',
+          trainingOn() ? 'Release in the green band' : 'Release in the green',
         );
         break;
       case 'espresso':
@@ -1761,7 +1780,10 @@ export function createStations(context) {
           liveValue / CONFIG.shot.simSeconds,
           CONFIG.shot.zone,
           'Extraction',
-          liveValue.toFixed(1) + 's',
+          trainingOn()
+            ? liveValue.toFixed(1) + 's · release at ' + CONFIG.shot.zoneSeconds[0]
+              + '-' + CONFIG.shot.zoneSeconds[1] + 's'
+            : liveValue.toFixed(1) + 's',
         );
         break;
       case 'steamWand':
@@ -1776,13 +1798,22 @@ export function createStations(context) {
           (liveValue - CONFIG.steam.from) / (CONFIG.steam.to - CONFIG.steam.from),
           CONFIG.steam.zone,
           'Milk',
-          Math.round(liveValue) + 'C',
+          trainingOn()
+            ? Math.round(liveValue) + '°C · release at ' + CONFIG.steam.zoneTemp[0]
+              + '-' + CONFIG.steam.zoneTemp[1] + '°C'
+            : Math.round(liveValue) + 'C',
         );
         emitHandItem();
         break;
       case 'blender':
         liveValue = Math.min(1, liveElapsed / CONFIG.blend.seconds);
-        showMeter('blend', liveValue, BLEND_METER_ZONE, 'Blend', 'Keep holding');
+        showMeter(
+          'blend',
+          liveValue,
+          BLEND_METER_ZONE,
+          'Blend',
+          trainingOn() ? 'Hold until the bar is full' : 'Keep holding',
+        );
         break;
       case 'coldBrewTap':
         liveValue = Math.min(CONFIG.coldBrew.max, liveElapsed / CONFIG.coldBrew.seconds);
@@ -1791,7 +1822,7 @@ export function createStations(context) {
           liveValue / CONFIG.coldBrew.max,
           COLD_BREW_METER_ZONE,
           'Cold brew',
-          'Keep holding',
+          trainingOn() ? 'Release before the bar tops out' : 'Keep holding',
         );
         break;
       default:
