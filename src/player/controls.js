@@ -36,6 +36,9 @@ const CONFIG = {
   rayInterval: 0.05,
   rayNear: 0.05,
   rayFar: 2.4,
+  aimSpread: 0.06,        // NDC-y radius of the fallback ring when the centre ray misses
+  aimSpreadTouch: 0.10,   // a thumb aims coarser than a cursor
+  aimRingRays: 12,        // Measured kiosk: 8 skips the thin wand at 0.5–0.7 m; 12 at radius 0.06 acquires all 12 stations at every working distance
   holdThreshold: 0.18,
   promptSeparator: '  —  ',
 };
@@ -114,7 +117,9 @@ export function createPlayer(ctx, colliders) {
 
   const raycaster = new THREE.Raycaster();
   const rayCentre = new THREE.Vector2(0, 0);
+  const rayOffset = new THREE.Vector2();
   const rayHits = [];
+  const resolvedHit = { entry: null, distance: 0 };
   const targetObjects = [];
   const cachedObjects = [];
   const cachedEntries = [];
@@ -318,15 +323,7 @@ export function createPlayer(ctx, colliders) {
     }
   }
 
-  function acquireTarget() {
-    syncInteractableCache();
-    currentTarget = null;
-    if (targetObjects.length === 0) return;
-
-    rayHits.length = 0;
-    raycaster.setFromCamera(rayCentre, camera);
-    raycaster.intersectObjects(targetObjects, true, rayHits);
-
+  function resolveHit() {
     for (let i = 0; i < rayHits.length; i += 1) {
       let node = rayHits[i].object;
       let entry = null;
@@ -340,10 +337,47 @@ export function createPlayer(ctx, colliders) {
         node = node.parent;
       }
       if (visible && entry) {
-        currentTarget = entry;
-        return;
+        resolvedHit.entry = entry;
+        resolvedHit.distance = rayHits[i].distance;
+        return resolvedHit;
       }
     }
+    return null;
+  }
+
+  function acquireTarget() {
+    syncInteractableCache();
+    currentTarget = null;
+    if (targetObjects.length === 0) return;
+
+    rayHits.length = 0;
+    raycaster.setFromCamera(rayCentre, camera);
+    raycaster.intersectObjects(targetObjects, true, rayHits);
+    const centreHit = resolveHit();
+    if (centreHit) {
+      currentTarget = centreHit.entry;
+      return;
+    }
+
+    const spread = touchMode ? CONFIG.aimSpreadTouch : CONFIG.aimSpread;
+    const aspect = Number.isFinite(camera.aspect) && camera.aspect > 0
+      ? camera.aspect
+      : 1;
+    let nearestEntry = null;
+    let nearestDistance = Infinity;
+    for (let i = 0; i < CONFIG.aimRingRays; i += 1) {
+      const angle = i * Math.PI * 2 / CONFIG.aimRingRays;
+      rayOffset.set(Math.cos(angle) * spread / aspect, Math.sin(angle) * spread);
+      rayHits.length = 0;
+      raycaster.setFromCamera(rayOffset, camera);
+      raycaster.intersectObjects(targetObjects, true, rayHits);
+      const hit = resolveHit();
+      if (hit && hit.distance < nearestDistance) {
+        nearestEntry = hit.entry;
+        nearestDistance = hit.distance;
+      }
+    }
+    currentTarget = nearestEntry;
   }
 
   function updatePrompt() {
