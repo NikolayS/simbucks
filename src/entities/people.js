@@ -238,6 +238,13 @@ function clamp(value, lo, hi) {
   return value < lo ? lo : value > hi ? hi : value;
 }
 
+function solveSeatedThighAngle(seatHeight, rootWorldY, scaleY, thighLength, shinLength, footHeight) {
+  const thighWorld = thighLength * scaleY;
+  const verticalReach = seatHeight - rootWorldY - (shinLength + footHeight) * scaleY;
+  const sine = thighWorld > 0.0001 ? clamp(verticalReach / thighWorld, -1, 1) : 0;
+  return clamp(Math.asin(sine), -0.30, 0.45);
+}
+
 function damp(current, target, response, dt) {
   return current + (target - current) * (1 - Math.exp(-response * dt));
 }
@@ -667,25 +674,30 @@ function createPerson(ctx, options) {
     );
     if (proxySeated) {
       const shinHeight = legShin + footHeight;
+      const thighAngle = solveSeatedThighAngle(
+        opts.seatHeight, group.position.y, personScale, legThigh, legShin, footHeight,
+      );
+      const thighDrop = legThigh * Math.sin(thighAngle);
+      const kneeZ = legThigh * Math.cos(thighAngle);
       proxyParts.push(
         {
           w: limbWidth * 1.18, h: legThigh, d: limbWidth * 1.18,
-          x: -hipWidth * 0.27, y: proxyHipY - 0.02, z: legThigh * 0.5,
-          rx: -HALF_PI, color: proxyTrouserColour,
+          x: -hipWidth * 0.27, y: proxyHipY - 0.02 - thighDrop * 0.5, z: kneeZ * 0.5,
+          rx: -HALF_PI + thighAngle, color: proxyTrouserColour,
         },
         {
           w: limbWidth * 1.18, h: legThigh, d: limbWidth * 1.18,
-          x: hipWidth * 0.27, y: proxyHipY - 0.02, z: legThigh * 0.5,
-          rx: -HALF_PI, color: proxyTrouserColour,
+          x: hipWidth * 0.27, y: proxyHipY - 0.02 - thighDrop * 0.5, z: kneeZ * 0.5,
+          rx: -HALF_PI + thighAngle, color: proxyTrouserColour,
         },
         {
           w: limbWidth, h: shinHeight, d: limbWidth,
-          x: -hipWidth * 0.27, y: proxyHipY - shinHeight * 0.5, z: legThigh,
+          x: -hipWidth * 0.27, y: proxyHipY - thighDrop - shinHeight * 0.5, z: kneeZ,
           color: proxyTrouserColour,
         },
         {
           w: limbWidth, h: shinHeight, d: limbWidth,
-          x: hipWidth * 0.27, y: proxyHipY - shinHeight * 0.5, z: legThigh,
+          x: hipWidth * 0.27, y: proxyHipY - thighDrop - shinHeight * 0.5, z: kneeZ,
           color: proxyTrouserColour,
         },
       );
@@ -789,10 +801,9 @@ function createPerson(ctx, options) {
   function seatedLegPhi() {
     const scaleY = Math.abs(group.scale.y) > 0.0001 ? group.scale.y : personScale;
     const seatHeight = Number.isFinite(group.userData.seatHeight) ? group.userData.seatHeight : 0.45;
-    const thighWorld = legThigh * scaleY;
-    const verticalReach = seatHeight - group.position.y - (legShin + footHeight) * scaleY;
-    const sine = thighWorld > 0.0001 ? clamp(verticalReach / thighWorld, -1, 1) : 0;
-    return clamp(Math.asin(sine), -0.30, 0.45);
+    return solveSeatedThighAngle(
+      seatHeight, group.position.y, scaleY, legThigh, legShin, footHeight,
+    );
   }
 
   function rollerGroundedY(rootLocalY, spineX, shoulderX, elbowX, rollerTilt) {
