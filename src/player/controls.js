@@ -565,6 +565,8 @@ export function createPlayer(ctx, colliders) {
     camera.rotation.set(pitch, yaw, 0);
   }
 
+  // Writes posX/posZ directly without per-frame collision resolution; landing inside a collider can pick the wrong axis next update and shove metres sideways (x 0.20, z -1.59 snapped to x -4.28 in one frame).
+  // Safe for the debug:teleport developer affordance; anything player-facing must land on a point clear of colliders.
   function teleport(x, z) {
     finishPress(true);
     keyE = false;
