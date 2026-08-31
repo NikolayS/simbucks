@@ -1081,9 +1081,17 @@
   text-transform: uppercase;
 }
 
-.sb-training-toggle-title {
-  min-width: clamp(190px, 34vmin, 270px);
-  margin: clamp(-22px, -1.6vmin, -10px) auto clamp(16px, 2vmin, 28px);
+.sb-training-toggle.sb-training-toggle-title {
+  display: flex;
+  min-width: clamp(150px, 24vmin, 190px);
+  min-height: clamp(26px, 3.4vmin, 32px);
+  margin: clamp(10px, 1.3vmin, 16px) auto 0;
+  padding: clamp(4px, .7vmin, 6px) clamp(7px, 1.2vmin, 10px);
+  border: 1px solid rgba(255, 255, 255, .3);
+  background: transparent;
+  color: rgba(255, 255, 255, .68);
+  font-size: clamp(8px, 1.2vmin, 10px);
+  text-shadow: none;
 }
 
 .sb-primary-button,

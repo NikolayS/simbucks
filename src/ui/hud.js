@@ -1212,7 +1212,7 @@ function buildScreens() {
   source.target = '_blank';
   source.rel = 'noopener noreferrer';
   footer.append(document.createElement('br'), source);
-  titleCard.append(wordmark, rule, premise, controls, touchControls, trainingToggle, start, footer);
+  titleCard.append(wordmark, rule, premise, controls, touchControls, start, trainingToggle, footer);
   titleScreen.append(titleCard);
 
   const endScreen = el('section', 'sb-screen sb-end-screen');

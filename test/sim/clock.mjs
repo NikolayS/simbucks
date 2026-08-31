@@ -1,0 +1,12 @@
+import { createState, startShift, updateState, shownClock } from '../../src/game/state.js';
+import { createBus } from '../../src/core/bus.js';
+console.log('shownClock: 0 ->', shownClock(0), '| 240 ->', shownClock(240), '| 480 ->', shownClock(480), '| 600 ->', shownClock(600));
+const ctx = { bus: createBus(), state: createState(), rng: Math.random };
+let ended = null;
+ctx.bus.on('shift:end', p => ended = ended ?? p.summary);
+startShift(ctx);
+console.log('shiftLength =', ctx.state.shiftLength);
+const dt = 1/30;
+for (let i = 0; i < 20000; i++) updateState(ctx, dt);
+console.log('after 20000 frames: tSec', ctx.state.tSec.toFixed(2), 'clock', ctx.state.clock, 'phase', ctx.state.phase);
+console.log('summary clock at shift:end ->', ended?.clock, '| reason', ended?.reason);

@@ -464,6 +464,84 @@ coverageCheck(missingScenarioCodes.length === 0,
     ? `scoreOrder scenarios are missing FAULT_LABELS codes: ${missingScenarioCodes.join(', ')}`
     : 'scoreOrder scenarios cover every FAULT_LABELS code except wrongMilk');
 
+console.log('\npickup overflow geometry coverage:');
+const pileupBus = createBus();
+const pileupState = state.createState();
+pileupState.phase = 'playing';
+pileupState.training = true;
+const pileupCtx = {
+  THREE,
+  scene: new THREE.Scene(),
+  layout: LAYOUT,
+  mat: { get: () => new THREE.MeshStandardMaterial() },
+  tex: {},
+  audio: { play() {} },
+  bus: pileupBus,
+  rng: mulberry32(31337),
+  state: pileupState,
+};
+const pileupCustomers = customers.buildCustomers(pileupCtx);
+pileupCtx.scene.add(pileupCustomers.group);
+const pickupGroups = new Map();
+const orderSlot = LAYOUT.queue.order;
+pileupBus.on('order:new', ({ order }) => {
+  let nearest = null;
+  let nearestDistance = Infinity;
+  const assigned = new Set(pickupGroups.values());
+  for (const group of pileupCustomers.group.children) {
+    if (!group.visible || assigned.has(group)) continue;
+    const dx = group.position.x - orderSlot.x;
+    const dz = group.position.z - orderSlot.z;
+    const distance = dx * dx + dz * dz;
+    if (distance < nearestDistance) {
+      nearest = group;
+      nearestDistance = distance;
+    }
+  }
+  if (order?.id != null && nearest) pickupGroups.set(order.id, nearest);
+});
+pileupBus.on('order:lost', ({ order }) => pickupGroups.delete(order?.id));
+
+const merch = LAYOUT.terminal.merch;
+const pickup = LAYOUT.queue.pickup;
+const pickupCount = Math.max(0, Math.floor(pickup.n));
+const lastPickupX = pickup.x + pickup.dx * Math.max(0, pickupCount - 1);
+const pickupTolerance = 0.07;
+let shelfIntrusionFrames = 0;
+let eastOfPickupFrames = 0;
+let peakPickupWaiting = 0;
+const pileupDt = 1 / 30;
+for (let frame = 0; frame < 300 / pileupDt; frame++) {
+  state.updateState(pileupCtx, pileupDt);
+  if (pileupState.phase === 'playing') {
+    pileupBus.emit('interact', { id: 'till', phase: 'tap' });
+  }
+  pileupCustomers.update(pileupDt, pileupState.tSec);
+
+  for (const group of pileupCustomers.group.children) {
+    if (!group.visible) continue;
+    const { x, z } = group.position;
+    if (x > merch.x0 && x < merch.x1 && z > merch.z0 && z < merch.z1) {
+      shelfIntrusionFrames++;
+    }
+  }
+
+  let waitingNow = 0;
+  for (const group of pickupGroups.values()) {
+    if (!group.visible || group.position.z < pickup.z - pickupTolerance) continue;
+    waitingNow++;
+    if (group.position.x > lastPickupX + pickupTolerance) eastOfPickupFrames++;
+  }
+  peakPickupWaiting = Math.max(peakPickupWaiting, waitingNow);
+}
+pileupCustomers.dispose();
+coverageCheck(shelfIntrusionFrames === 0,
+  'training pile-up keeps every visible customer body centre out of the merch shelf');
+coverageCheck(eastOfPickupFrames === 0,
+  'customers waiting at pickup stay at or west of the last pickup slot');
+coverageCheck(peakPickupWaiting > pickupCount,
+  `training pile-up exceeds the ${pickupCount} pickup slots (peak ${peakPickupWaiting})`);
+
 if (coverageFailures.length) process.exitCode = 1;
 
 process.exit((fail || process.exitCode) ? 1 : 0);

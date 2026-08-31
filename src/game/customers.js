@@ -5,6 +5,7 @@ import { makePerson } from '../entities/people.js';
 
 const SPEED = 1.25, MAX_ACTIVE = 14, POOL_CAP = 18;
 const MIN_PUBLIC_Z = 2.2, CORRIDOR_Z = 5.4;
+const PICKUP_ROW_GAP = 0.55, MAX_PICKUP_ROW = 3;
 
 const MUTTERS = Object.freeze([
   'Another gate change. Splendid.', 'Delayed. What a novelty.',
@@ -111,7 +112,7 @@ export function buildCustomers(ctx) {
   const orderX = i => finite(orderCfg.x) + finite(orderCfg.dx) * i;
   const pickupX = i => finite(pickupCfg.x) + finite(pickupCfg.dx) * i;
   const orderPoint = i => point(orderX(i), orderCfg.z);
-  const pickupPoint = (i, offset = 0) => point(pickupX(i) + offset, pickupCfg.z);
+  const pickupPoint = (i, zOffset = 0) => point(pickupX(i), finite(pickupCfg.z) + zOffset);
   const holdPoint = k => point(finite(enter.x) + 2.2 + k * 0.95,
     CORRIDOR_Z + (k % 2) * 0.7);
 
@@ -255,7 +256,8 @@ export function buildCustomers(ctx) {
     for (let i = 0; i < pickupSlots.length; i++) {
       if (!pickupSlots[i]) { slot = i; break; }
     }
-    let offset = 0;
+    let pickupIndex = slot;
+    let zOffset = 0;
     if (slot >= 0) pickupSlots[slot] = c;
     else {
       slot = Math.max(0, pickupN - 1);
@@ -264,11 +266,14 @@ export function buildCustomers(ctx) {
         if (other !== c && other.pickupOverflow > 0) overflow++;
       }
       c.pickupOverflow = overflow;
-      offset = overflow * 0.24;
+      const slotsPerRow = Math.max(1, pickupN);
+      const row = Math.min(MAX_PICKUP_ROW, 1 + Math.floor((overflow - 1) / slotsPerRow));
+      pickupIndex = (overflow - 1) % slotsPerRow;
+      zOffset = row * PICKUP_ROW_GAP;
     }
     c.slot = slot;
-    const x = pickupX(slot) + offset;
-    setPath(c, [point(x, orderZ), pickupPoint(slot, offset)]);
+    const x = pickupX(pickupIndex);
+    setPath(c, [point(x, orderZ), pickupPoint(pickupIndex, zOffset)]);
     setMode(c, 'toPickup');
   }
   function spawnCustomer() {
