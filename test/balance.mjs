@@ -134,8 +134,22 @@ const regular = sweep(false);
 const training = sweep(true);
 const beginner = SEEDS.map(seed => ({ hold: 2, seed, result: run(40, 2, seed, false) }));
 const greedyBeginner = SEEDS.map(seed => ({ hold: 4, seed, result: run(40, 4, seed, false) }));
+// The absurd 120 s build time is the only way to reach three losses in training
+// through gameplay: patience at 0.4 otherwise prevents it, making any assertion
+// about suppressing walk-out shift endings worthless because it cannot reach them.
+const stalledTraining = SEEDS.map(seed => ({ hold: 4, seed, result: run(120, 4, seed, true) }));
+const stalledRegular = SEEDS.map(seed => ({ hold: 4, seed, result: run(120, 4, seed, false) }));
 const allConfigurations = [...regular, ...training, ...beginner, ...greedyBeginner];
 const failures = [];
+
+function stalledSummary(rows) {
+  return rows.map(({ seed, result }) =>
+    `${seed}: lost ${result.lost}, ${result.endT}s ${result.ended}, served ${result.served}`).join(' | ');
+}
+
+console.log('\nStalled player (120 s/drink, hold 4)');
+console.log(`  training ON : ${stalledSummary(stalledTraining)}`);
+console.log(`  training OFF: ${stalledSummary(stalledRegular)}`);
 
 function resultsAt(rows, buildTime) {
   return rows.filter(row => row.result.buildTime === buildTime);
@@ -168,8 +182,14 @@ check('struggling 34 s player ends in walkouts before 460 s without training',
 check('a player who dies without training survives with it',
   resultsAt(training, 34).every(({ result }) => result.ended === 'time'
     && Number(result.endT) >= 479 && result.lost === 0));
+check('a stalled player in training keeps their shift despite passing 3 walk-outs',
+  stalledTraining.every(({ result }) => result.lost >= 3 && result.ended === 'time'
+    && Number(result.endT) >= 479));
+check('the same stalled player without training loses the shift to walkouts',
+  stalledRegular.every(({ result }) => result.ended === 'walkouts'
+    && Number(result.endT) < 480));
 check('training never ends a shift in walkouts',
-  training.every(({ result }) => result.ended !== 'walkouts'));
+  [...training, ...stalledTraining].every(({ result }) => result.ended !== 'walkouts'));
 check('training at 60 s still earns money and tips',
   resultsAt(training, 60).every(({ result }) => result.money > 0 && result.tips > 0));
 check('both modes serve at least as many drinks at 18 s as at 60 s',
@@ -202,5 +222,5 @@ const difficulty = rampDifficulties();
 check('difficulty is 0 at the end of act 1 and 1 at the end of the shift',
   difficulty.act1End === 0 && difficulty.shiftEnd === 1);
 
-console.log(`\n${13 - failures.length} passed, ${failures.length} failed, 13 total`);
+console.log(`\n${15 - failures.length} passed, ${failures.length} failed, 15 total`);
 process.exit(failures.length ? 1 : 0);

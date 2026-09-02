@@ -514,6 +514,17 @@ patience at 0.4 means no training run in the sweep ever reaches three losses,
 so it never exercises the code it names. An assertion that cannot reach its
 own subject is not a test.
 
+**"Cannot fail" and "cannot reach its subject" are two defects, found two
+ways.** A check that cannot fail is found by mutating the code and watching it
+stay green. A check that cannot reach its subject survives mutation — the
+mechanism really is guarded, just elsewhere — and is only found by asking what
+state the assertion names and whether any run ever enters it. Ask both.
+
+**Pair an A/B assertion with its control.** "Training keeps the shift alive"
+is worthless alone: a future change that made every shift run to time would
+leave it green for entirely the wrong reason. Assert the negative case in the
+same breath.
+
 **Never source an assertion from the config it is guarding.** Three Act-1
 gaps hid because the checks read `maxMods`/`maxTier` from the `ACTS` table, so
 mutating the table moved the test with it. Act boundaries may read from the
