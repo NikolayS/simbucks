@@ -506,6 +506,20 @@ Group, so a top-level check never sees the lights or the floor inside them.
 This shipped a double-lit scene and a duplicate floor plane for most of the
 build. Recurse.
 
+**Mutate the code, then run the WHOLE suite.** Mutating and running one
+harness measures that harness, not the suite — it reports guarded mechanisms
+as unguarded and wastes a pass chasing them. And a check can be green for the
+wrong reason: "training never ends a shift in walkouts" passes only because
+patience at 0.4 means no training run in the sweep ever reaches three losses,
+so it never exercises the code it names. An assertion that cannot reach its
+own subject is not a test.
+
+**Never source an assertion from the config it is guarding.** Three Act-1
+gaps hid because the checks read `maxMods`/`maxTier` from the `ACTS` table, so
+mutating the table moved the test with it. Act boundaries may read from the
+table — when an act ends is a tuning knob. Act CONTENT is pinned
+independently, because what Act 1 promises a beginner is the contract.
+
 **Bounding boxes have eaten three props.** A circumscribed circle rejected a
 0.05 m sliver as if it were 1 m wide; an unrotated AABB nearly sat three stool
 sitters across a rotated table. Use the rectangle, and rotate it.
