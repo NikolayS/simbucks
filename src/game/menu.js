@@ -56,19 +56,19 @@ const lid = () => ({ station: 'cupStack', param: 'lid' });
 // microfoam and dry foam distinguish their otherwise matching steps.
 export const DRINKS = deepFreeze([
   {
-    id: 'espresso', name: 'Espresso', price: 2.15, hot: true,
+    id: 'espresso', name: 'Espresso', price: 2.15, hot: true, tier: 1,
     size: ['short', 'tall'], tags: ['espresso'], w0: 3, w1: 2, milk: false,
     recipe: [cup(), { station: 'grinder', param: 'grind' },
       { station: 'espresso', param: 'pull' }, lid()],
   },
   {
-    id: 'americano', name: 'Americano', price: 2.85, hot: true,
+    id: 'americano', name: 'Americano', price: 2.85, hot: true, tier: 1,
     size: ['tall', 'grande', 'venti'], tags: ['espresso'], w0: 9, w1: 4, milk: false,
     recipe: [cup(), { station: 'grinder', param: 'grind' },
       { station: 'espresso', param: 'pull' }, { station: 'sink', param: 'water' }, lid()],
   },
   {
-    id: 'latte', name: 'Latte', price: 3.55, hot: true,
+    id: 'latte', name: 'Latte', price: 3.55, hot: true, tier: 1,
     size: ['tall', 'grande', 'venti'], tags: ['espresso', 'milk'], w0: 12, w1: 6, milk: true,
     recipe: [cup(), { station: 'grinder', param: 'grind' },
       { station: 'espresso', param: 'pull' },
@@ -76,7 +76,7 @@ export const DRINKS = deepFreeze([
       { station: 'steamWand', param: 'pour' }, lid()],
   },
   {
-    id: 'flatWhite', name: 'Flat White', price: 3.65, hot: true,
+    id: 'flatWhite', name: 'Flat White', price: 3.65, hot: true, tier: 2,
     size: ['tall', 'grande'], tags: ['espresso', 'milk'], w0: 5, w1: 6, milk: true,
     recipe: [cup(), { station: 'grinder', param: 'grind' },
       { station: 'espresso', param: 'pull' },
@@ -84,7 +84,7 @@ export const DRINKS = deepFreeze([
       { station: 'steamWand', param: 'pour' }, lid()],
   },
   {
-    id: 'cappuccino', name: 'Cappuccino', price: 3.55, hot: true,
+    id: 'cappuccino', name: 'Cappuccino', price: 3.55, hot: true, tier: 2,
     size: ['tall', 'grande', 'venti'], tags: ['espresso', 'milk'], w0: 6, w1: 5, milk: true,
     recipe: [cup(), { station: 'grinder', param: 'grind' },
       { station: 'espresso', param: 'pull' },
@@ -92,7 +92,7 @@ export const DRINKS = deepFreeze([
       { station: 'steamWand', param: 'pour' }, lid()],
   },
   {
-    id: 'caramelMacchiato', name: 'Caramel Macchiato', price: 4.15, hot: true,
+    id: 'caramelMacchiato', name: 'Caramel Macchiato', price: 4.15, hot: true, tier: 3,
     size: ['tall', 'grande', 'venti'], tags: ['espresso', 'milk', 'fussy'],
     w0: 2, w1: 10, milk: true,
     recipe: [cup(), { station: 'syrupRack', param: 2, note: 'vanilla' },
@@ -100,7 +100,7 @@ export const DRINKS = deepFreeze([
       { station: 'superauto', param: 'shot', note: 'shots on top' }, lid()],
   },
   {
-    id: 'mocha', name: 'Mocha', price: 4.05, hot: true,
+    id: 'mocha', name: 'Mocha', price: 4.05, hot: true, tier: 2,
     size: ['tall', 'grande', 'venti'], tags: ['espresso', 'milk', 'fussy'],
     w0: 3, w1: 8, milk: true,
     recipe: [cup(), { station: 'syrupRack', param: 2, note: 'mocha sauce' },
@@ -108,13 +108,13 @@ export const DRINKS = deepFreeze([
       { station: 'steamWand', param: 'pour' }, lid()],
   },
   {
-    id: 'coldBrew', name: 'Cold Brew', price: 3.75, hot: false,
+    id: 'coldBrew', name: 'Cold Brew', price: 3.75, hot: false, tier: 2,
     size: ['tall', 'grande', 'venti'], tags: ['iced'], w0: 5, w1: 5, milk: false,
     recipe: [cup(), { station: 'iceWell', param: 'ice' },
       { station: 'coldBrewTap', param: 'tap' }, lid()],
   },
   {
-    id: 'icedLatte', name: 'Iced Latte', price: 3.85, hot: false,
+    id: 'icedLatte', name: 'Iced Latte', price: 3.85, hot: false, tier: 2,
     size: ['tall', 'grande', 'venti'], tags: ['espresso', 'milk', 'iced'],
     w0: 4, w1: 7, milk: true,
     recipe: [cup(), { station: 'iceWell', param: 'ice' },
@@ -122,7 +122,7 @@ export const DRINKS = deepFreeze([
       { station: 'steamWand', param: 'pour', note: 'cold milk' }, lid()],
   },
   {
-    id: 'caramelFrappuccino', name: 'Caramel Frappuccino', price: 4.75, hot: false,
+    id: 'caramelFrappuccino', name: 'Caramel Frappuccino', price: 4.75, hot: false, tier: 3,
     size: ['tall', 'grande', 'venti'], tags: ['iced', 'blended', 'fussy'],
     w0: 1, w1: 11, milk: true,
     recipe: [cup(), { station: 'iceWell', param: 'ice' },
@@ -131,7 +131,7 @@ export const DRINKS = deepFreeze([
       { station: 'blender', param: 'blend' }, lid()],
   },
   {
-    id: 'matchaLatte', name: 'Matcha Latte', price: 4.05, hot: true,
+    id: 'matchaLatte', name: 'Matcha Latte', price: 4.05, hot: true, tier: 3,
     size: ['tall', 'grande', 'venti'], tags: ['milk', 'fussy'], w0: 1, w1: 9, milk: true,
     recipe: [cup(), { station: 'syrupRack', param: 3, note: 'matcha scoops' },
       { station: 'sink', param: 'water', note: 'hot water first' },
@@ -139,14 +139,14 @@ export const DRINKS = deepFreeze([
       { station: 'steamWand', param: 'pour' }, lid()],
   },
   {
-    id: 'chaiLatte', name: 'Chai Latte', price: 3.85, hot: true,
+    id: 'chaiLatte', name: 'Chai Latte', price: 3.85, hot: true, tier: 2,
     size: ['tall', 'grande', 'venti'], tags: ['milk', 'tea'], w0: 3, w1: 6, milk: true,
     recipe: [cup(), { station: 'syrupRack', param: 2, note: 'chai concentrate' },
       { station: 'steamWand', param: 'steam' },
       { station: 'steamWand', param: 'pour' }, lid()],
   },
   {
-    id: 'breakfastTea', name: 'English Breakfast Tea', price: 2.45, hot: true,
+    id: 'breakfastTea', name: 'English Breakfast Tea', price: 2.45, hot: true, tier: 1,
     size: ['tall', 'grande', 'venti'], tags: ['tea'], w0: 10, w1: 3, milk: false,
     recipe: [cup(), { station: 'sink', param: 'water' }, lid()],
   },
@@ -186,18 +186,20 @@ export function getDrink(id) {
   return DRINKS.find(drink => drink.id === id) ?? null;
 }
 
-export function pickDrink(rng, difficulty) {
+export function pickDrink(rng, difficulty, maxTier = 3) {
   const d = clamp01(difficulty);
-  const weights = DRINKS.map(drink => Math.max(0, drink.w0 + (drink.w1 - drink.w0) * d));
+  const eligible = DRINKS.filter(drink => drink.tier <= maxTier);
+  const drinks = eligible.length > 0 ? eligible : DRINKS;
+  const weights = drinks.map(drink => Math.max(0, drink.w0 + (drink.w1 - drink.w0) * d));
   const total = weights.reduce((sum, weight) => sum + weight, 0);
-  if (!(total > 0)) return DRINKS[0];
+  if (!(total > 0)) return drinks[0];
 
   let cursor = randomUnit(rng) * total;
-  for (let i = 0; i < DRINKS.length; i++) {
+  for (let i = 0; i < drinks.length; i++) {
     cursor -= weights[i];
-    if (cursor < 0) return DRINKS[i];
+    if (cursor < 0) return drinks[i];
   }
-  return DRINKS[DRINKS.length - 1];
+  return drinks[drinks.length - 1];
 }
 
 export function pickFood(rng) {

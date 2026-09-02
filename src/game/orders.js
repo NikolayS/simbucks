@@ -247,14 +247,17 @@ export function makeOrder(ctx, difficulty) {
   const rng = () => randomUnit(sourceRng);
   const rawDifficulty = difficulty ?? ctx?.state?.difficulty ?? 0;
   const d = clamp(rawDifficulty, 0, 1);
-  const drink = pickDrink(rng, d);
+  const ramp = ctx?.state?.ramp ?? {};
+  const maxTier = Number.isFinite(ramp.maxTier) ? ramp.maxTier : 3;
+  const maxMods = Number.isFinite(ramp.maxMods) ? ramp.maxMods : 3;
+  const drink = pickDrink(rng, d, maxTier);
   const size = pickSize(drink, d, rng);
   const entry = NAMES[Math.floor(rng() * NAMES.length)] ?? NAMES[0];
   const trueName = entry?.name ?? 'Passenger';
   const name = String(entry?.misheard ?? trueName).toUpperCase();
   const steps = recipeFor(drink, size);
   const selected = [];
-  const target = modCount(d, rng);
+  const target = Math.min(modCount(d, rng), maxMods);
 
   while (selected.length < target) {
     const chosenIds = new Set(selected.map(mod => mod.id));
@@ -290,6 +293,7 @@ export function makeOrder(ctx, difficulty) {
     text: '',
     food,
     difficulty: d,
+    act: ramp.act,
   };
   order.text = orderText(order);
   order.short = `${sizeLabel(size)} ${drink?.name ?? ''} — ${name}`.trim();

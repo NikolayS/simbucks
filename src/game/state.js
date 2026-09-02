@@ -47,6 +47,8 @@ export function createState() {
     phase: 'title',
     rank: 'Green Apron',
     difficulty: 0,
+    act: 1,
+    ramp: ACTS[0],
     clock: '07:00',
     accuracy: 1,
     ordersTaken: 0,
@@ -62,14 +64,31 @@ export function createState() {
   };
 }
 
+// The shift is three acts. Act 1 is one customer at a time so a beginner can
+// find the grinder; act 3 is the morning rush and is as hard as it ever was.
+export const ACTS = Object.freeze([
+  // maxPickup is 2, not 1, so a customer can be walking in while the previous
+  // drink is still being made. The walk from the entrance takes ~11 s, and gating
+  // it behind the single pickup slot serialised that walk with every build, which
+  // cost a fast player two drinks a shift. One ticket at a time is still the norm
+  // in act 1 - a beginner only reaches two by choosing to take the second order.
+  Object.freeze({ act: 1, until: 100, gap: [18, 22], maxOrdering: 1, maxPickup: 2, maxMods: 0, maxTier: 1 }),
+  Object.freeze({ act: 2, until: 260, gap: null, maxOrdering: 2, maxPickup: 3, maxMods: 1, maxTier: 2 }),
+  Object.freeze({ act: 3, until: Infinity, gap: null, maxOrdering: 99, maxPickup: 99, maxMods: 3, maxTier: 3 }),
+]);
+
+export function actFor(tSec) {
+  return ACTS.find(entry => entry.until > tSec) ?? ACTS[ACTS.length - 1];
+}
+
 export const FLIGHTS = Object.freeze([
-  { time: 42, flight: 'BA1442', gate: '12', dest: 'Edinburgh', size: 2 },
-  { time: 108, flight: 'FR8213', gate: '31', dest: 'Dublin', size: 2 },
-  { time: 176, flight: 'U27714', gate: '6', dest: 'Geneva', size: 3 },
-  { time: 244, flight: 'KL1006', gate: '24', dest: 'Amsterdam', size: 3 },
-  { time: 312, flight: 'LH0921', gate: '38', dest: 'Frankfurt', size: 3 },
-  { time: 378, flight: 'VY6203', gate: '17', dest: 'Barcelona', size: 4 },
-  { time: 436, flight: 'AF1181', gate: '41', dest: 'Paris CDG', size: 3 },
+  { time: 132, flight: 'BA1442', gate: '12', dest: 'Edinburgh', size: 2 },
+  { time: 196, flight: 'FR8213', gate: '31', dest: 'Dublin', size: 2 },
+  { time: 252, flight: 'U27714', gate: '6', dest: 'Geneva', size: 3 },
+  { time: 305, flight: 'KL1006', gate: '24', dest: 'Amsterdam', size: 3 },
+  { time: 352, flight: 'LH0921', gate: '38', dest: 'Frankfurt', size: 4 },
+  { time: 402, flight: 'VY6203', gate: '17', dest: 'Barcelona', size: 4 },
+  { time: 444, flight: 'AF1181', gate: '41', dest: 'Paris CDG', size: 4 },
 ].map(Object.freeze));
 
 const wiredContexts = new WeakSet();
@@ -278,7 +297,11 @@ export function updateState(ctx, dt) {
   const current = Number.isFinite(state.tSec) ? state.tSec : 0;
   state.tSec = clamp(current + Math.max(0, dt), 0, shiftLength);
   state.clock = shownClock(state.tSec);
-  state.difficulty = clamp(state.tSec / (shiftLength * 0.8), 0, 1);
+  state.ramp = actFor(state.tSec);
+  state.act = state.ramp.act;
+  const rampStart = ACTS[0].until;
+  const rampEnd = shiftLength * 0.8;
+  state.difficulty = clamp((state.tSec - rampStart) / Math.max(1, rampEnd - rampStart), 0, 1);
 
   let index = Number.isInteger(state.flightIndex) ? state.flightIndex : 0;
   index = clamp(index, 0, FLIGHTS.length);
@@ -332,6 +355,7 @@ export function endShift(ctx, reason) {
     clock: typeof state.clock === 'string' ? state.clock : shownClock(state.tSec),
     topFaults: state.topFaults,
     training: state.training === true,
+    act: state.act,
   };
   emit(ctx, 'shift:end', { summary });
 }

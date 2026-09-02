@@ -5,12 +5,16 @@ installDom();
 const THREE = await import('three');
 const { LAYOUT } = await import('../src/core/layout.js');
 const { createBus } = await import('../src/core/bus.js');
-const { createState, startShift, updateState } = await import('../src/game/state.js');
+const { ACTS, createState, startShift, updateState } = await import('../src/game/state.js');
 const { scoreOrder, setShiftTime } = await import('../src/game/orders.js');
 const { buildCustomers } = await import('../src/game/customers.js');
 
 const CONFIGS = [[18, 2], [24, 2], [28, 2], [34, 2], [45, 1], [60, 1]];
 const SEEDS = [7, 99, 4242];
+const ACT_1_END = ACTS[0].until;
+// Act 1's time boundary is tunable, but its content is a pinned design contract.
+// Keep these guarantees independent of ACTS so mutations to that table are caught.
+const ACT_1_DRINK_IDS = new Set(['espresso', 'americano', 'breakfastTea', 'latte']);
 
 function run(buildTime, maxHold, seed, training) {
   let s = seed >>> 0;
@@ -31,11 +35,25 @@ function run(buildTime, maxHold, seed, training) {
   ctx.scene.add(cust.group);
   const pending = [];
   let arrivals = 0, walkouts = 0, queueLost = 0, ended = null, endT = 0;
-  bus.on('order:new', ({ order }) => { pending.push(order); arrivals++; });
+  let act1Lost = 0, act1PeakTickets = 0, act1Rushes = 0, act1OrdersTaken = 0;
+  const act1Orders = [];
+  bus.on('order:new', ({ order }) => {
+    pending.push(order); arrivals++;
+    if (ctx.state.tSec < ACT_1_END) {
+      act1OrdersTaken++;
+      act1PeakTickets = Math.max(act1PeakTickets, pending.length);
+      act1Orders.push({
+        drinkId: order?.drink?.id,
+        modifierCount: Array.isArray(order?.mods) ? order.mods.length : 0,
+      });
+    }
+  });
   bus.on('order:lost', ({ order, reason }) => {
     const i = pending.findIndex(o => o.id === order?.id); if (i >= 0) pending.splice(i, 1);
+    if (ctx.state.tSec < ACT_1_END) act1Lost++;
     if (reason === 'walkout') walkouts++; else queueLost++;
   });
+  bus.on('rush', () => { if (ctx.state.tSec < ACT_1_END) act1Rushes++; });
   bus.on('shift:end', ({ summary }) => { if (!ended) { ended = summary; endT = ctx.state.tSec; } });
   startShift(ctx);
   ctx.state.training = training;
@@ -84,6 +102,11 @@ function run(buildTime, maxHold, seed, training) {
     endT: endT.toFixed(0),
     ordersTaken: st.ordersTaken,
     arrivals,
+    act1Lost,
+    act1PeakTickets,
+    act1Rushes,
+    act1OrdersTaken,
+    act1Orders,
   };
 }
 
@@ -109,6 +132,9 @@ function sweep(training) {
 
 const regular = sweep(false);
 const training = sweep(true);
+const beginner = SEEDS.map(seed => ({ hold: 2, seed, result: run(40, 2, seed, false) }));
+const greedyBeginner = SEEDS.map(seed => ({ hold: 4, seed, result: run(40, 4, seed, false) }));
+const allConfigurations = [...regular, ...training, ...beginner, ...greedyBeginner];
 const failures = [];
 
 function resultsAt(rows, buildTime) {
@@ -118,6 +144,18 @@ function resultsAt(rows, buildTime) {
 function check(message, passed) {
   console.log(`  ${passed ? 'ok  ' : 'FAIL'} ${message}`);
   if (!passed) failures.push(message);
+}
+
+function rampDifficulties() {
+  const ctx = { state: createState(), bus: createBus() };
+  startShift(ctx);
+  const dt = 1 / 30;
+  while (ctx.state.tSec < ACT_1_END) {
+    updateState(ctx, Math.min(dt, ACT_1_END - ctx.state.tSec));
+  }
+  const act1End = ctx.state.difficulty;
+  while (ctx.state.phase === 'playing') updateState(ctx, dt);
+  return { act1End, shiftEnd: ctx.state.difficulty };
 }
 
 console.log('\nBalance checks');
@@ -140,6 +178,29 @@ check('both modes serve at least as many drinks at 18 s as at 60 s',
     const slow = rows.find(row => row.seed === seed && row.result.buildTime === 60)?.result;
     return fast && slow && fast.served >= slow.served;
   })));
+check('a 40 s beginner loses nobody during act 1 across all three seeds',
+  beginner.every(({ result }) => result.act1Lost === 0));
+check('no flight boards during act 1 in any swept configuration',
+  [...regular, ...training, ...beginner].every(({ result }) => result.act1Rushes === 0));
+check('act 1 caps a greedy 40 s beginner at 2 outstanding tickets across all three seeds',
+  greedyBeginner.every(({ result }) => result.act1PeakTickets <= 2));
+check('act 1 is not empty: the 18 s expert takes at least 3 orders',
+  resultsAt(regular, 18).every(({ result }) => result.act1OrdersTaken >= 3));
+const act1ModifierOffender = allConfigurations.flatMap(({ seed, result }) =>
+  result.act1Orders.map(order => ({ seed, ...order })))
+  .find(order => order.modifierCount !== 0);
+check(act1ModifierOffender
+  ? `every act-1 order has zero modifiers (found ${act1ModifierOffender.modifierCount} on ${act1ModifierOffender.drinkId}, seed ${act1ModifierOffender.seed})`
+  : 'every act-1 order has zero modifiers', !act1ModifierOffender);
+const act1DrinkOffender = allConfigurations.flatMap(({ seed, result }) =>
+  result.act1Orders.map(order => ({ seed, ...order })))
+  .find(order => !ACT_1_DRINK_IDS.has(order.drinkId));
+check(act1DrinkOffender
+  ? `every act-1 drink is espresso, americano, breakfastTea, or latte (found ${act1DrinkOffender.drinkId}, seed ${act1DrinkOffender.seed})`
+  : 'every act-1 drink is espresso, americano, breakfastTea, or latte', !act1DrinkOffender);
+const difficulty = rampDifficulties();
+check('difficulty is 0 at the end of act 1 and 1 at the end of the shift',
+  difficulty.act1End === 0 && difficulty.shiftEnd === 1);
 
-console.log(`\n${6 - failures.length} passed, ${failures.length} failed, 6 total`);
+console.log(`\n${13 - failures.length} passed, ${failures.length} failed, 13 total`);
 process.exit(failures.length ? 1 : 0);

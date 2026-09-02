@@ -416,8 +416,25 @@ export function buildCustomers(ctx) {
       queueLineTimer = randRange(8, 15);
     }
   }
+  function countActiveCustomers() {
+    let yetToOrder = 0;
+    let waitingOnDrink = 0;
+    for (const c of active) {
+      if (c.mode === 'walkIn' || c.mode === 'hold'
+          || c.mode === 'queue' || c.mode === 'ordering') yetToOrder++;
+      else if (c.mode === 'toPickup' || c.mode === 'waiting') waitingOnDrink++;
+    }
+    return { yetToOrder, waitingOnDrink };
+  }
   // Spawn scheduling consumes due entries only when the active cap permits it.
   function processSpawns() {
+    const ramp = ctx?.state?.ramp ?? {};
+    const maxOrdering = Number.isFinite(ramp.maxOrdering) ? ramp.maxOrdering : Infinity;
+    const maxPickup = Number.isFinite(ramp.maxPickup) ? ramp.maxPickup : Infinity;
+    const atRampCapacity = () => {
+      const { yetToOrder, waitingOnDrink } = countActiveCustomers();
+      return yetToOrder >= maxOrdering || waitingOnDrink >= maxPickup;
+    };
     for (;;) {
       let dueIndex = -1;
       let dueTime = Infinity;
@@ -428,7 +445,7 @@ export function buildCustomers(ctx) {
         }
       }
       if (dueIndex < 0) break;
-      if (active.length >= MAX_ACTIVE) {
+      if (active.length >= MAX_ACTIVE || atRampCapacity()) {
         pendingSpawns[dueIndex] = directorNow + 2;
         break;
       }
@@ -436,13 +453,17 @@ export function buildCustomers(ctx) {
       spawnCustomer();
     }
     if (directorNow < nextTrickle) return;
-    if (active.length >= MAX_ACTIVE) {
+    if (active.length >= MAX_ACTIVE || atRampCapacity()) {
       nextTrickle = directorNow + 2;
       return;
     }
     spawnCustomer();
-    const difficulty = clamp(ctx?.state?.difficulty ?? 0, 0, 1);
-    nextTrickle = directorNow + (88 + (55 - 88) * difficulty) + randRange(-6, 6);
+    if (Array.isArray(ramp.gap) && ramp.gap.length === 2) {
+      nextTrickle = directorNow + randRange(ramp.gap[0], ramp.gap[1]);
+    } else {
+      const difficulty = clamp(ctx?.state?.difficulty ?? 0, 0, 1);
+      nextTrickle = directorNow + (88 + (55 - 88) * difficulty) + randRange(-6, 6);
+    }
   }
   function resetShift() {
     for (let i = active.length - 1; i >= 0; i--) release(active[i].person);
